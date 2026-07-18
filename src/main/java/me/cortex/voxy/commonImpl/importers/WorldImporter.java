@@ -68,8 +68,8 @@ public class WorldImporter implements IDataImporter {
         this.world = worldEngine;
         this.service = sm.createService(()->new Pair<>(()->this.jobQueue.poll().run(), ()->{}), 3, "World importer", runChecker);
 
-        var biomeRegistry = mcWorld.registryAccess().lookupOrThrow(Registries.BIOME);
-        var defaultBiome = biomeRegistry.getOrThrow(Biomes.PLAINS);
+        var biomeRegistry = mcWorld.registryAccess().registryOrThrow(Registries.BIOME);
+        var defaultBiome = biomeRegistry.getHolderOrThrow(Biomes.PLAINS);
         this.defaultBiomeProvider = new PalettedContainerRO<>() {
             @Override
             public Holder<Biome> get(int x, int y, int z) {
@@ -114,10 +114,19 @@ public class WorldImporter implements IDataImporter {
             }
         };
 
-        // MC 1.21.1: PalettedContainerFactory removed - need to find correct codec creation API
-        // TODO: Fix codec creation for PalettedContainer in MC 1.21.1
-        this.biomeCodec = null; // Placeholder
-        this.blockStateCodec = null; // Placeholder
+        // MC 1.21.1: PalettedContainerFactory removed, use the same codec construction as
+        // vanilla ChunkSerializer (BLOCK_STATE_CODEC / makeBiomeCodec)
+        this.biomeCodec = PalettedContainer.codecRO(biomeRegistry.asHolderIdMap(), biomeRegistry.holderByNameCodec(), Strategy.SECTION_BIOMES, defaultBiome);
+        this.blockStateCodec = PalettedContainer.codecRW(Block.BLOCK_STATE_REGISTRY, BlockState.CODEC, Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
+    }
+
+    //When set, only writes sections where the source has content but the stored LOD data is
+    // missing/all air, leaving any existing non-air data (which may be newer than the region
+    // snapshot) untouched
+    private volatile boolean repairOnly;
+    public WorldImporter setRepairOnly(boolean repairOnly) {
+        this.repairOnly = repairOnly;
+        return this;
     }
 
 
@@ -525,6 +534,10 @@ public class WorldImporter implements IDataImporter {
                     return (byte) (sky|(block<<4));
                 }
         );
+
+        if (this.repairOnly && (csec.lvl0NonAirCount == 0 || !WorldUpdater.isStoredSectionAir(this.world, csec))) {
+            return;
+        }
 
         WorldConversionFactory.mipSection(csec, this.world.getMapper());
         WorldUpdater.insertUpdate(this.world, csec);

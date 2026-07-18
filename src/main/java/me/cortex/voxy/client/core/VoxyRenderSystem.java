@@ -268,6 +268,7 @@ public class VoxyRenderSystem {
         TimingStatistics.E.start();
         if ((!VoxyClient.disableSodiumChunkRender()) && !IrisUtil.irisShadowActive()) {
             this.chunkBoundRenderer.render(viewport);
+            this.chunkBoundRenderer.updateCoverage(viewport.cameraX, viewport.cameraZ);
         } else {
             viewport.depthBoundingBuffer.clear(0);
         }

@@ -6,6 +6,7 @@ layout(binding = 0, std140) uniform SceneUniform {
     float uEarthRadius; // 0.0 = disabled, otherwise radius in blocks for world curvature
     float uVanillaRenderDistance;
     float uTranslucentFadeWidth;
+    float uOverdrawCutoff; // LOD fragments closer (horizontally) than this are discarded, 0 = never
 };
 
 //TODO: see if making the stride 2*4*4 bytes or something cause you get that 16 byte write

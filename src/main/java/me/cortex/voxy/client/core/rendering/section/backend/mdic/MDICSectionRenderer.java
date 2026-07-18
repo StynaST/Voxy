@@ -3,6 +3,7 @@ package me.cortex.voxy.client.core.rendering.section.backend.mdic;
 
 import me.cortex.voxy.client.RenderStatistics;
 import me.cortex.voxy.client.VoxyClient;
+import me.cortex.voxy.client.core.rendering.ChunkBoundRenderer;
 import me.cortex.voxy.client.core.AbstractRenderPipeline;
 import me.cortex.voxy.client.core.gl.Capabilities;
 import me.cortex.voxy.client.core.gl.GlBuffer;
@@ -162,6 +163,10 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         MemoryUtil.memPutFloat(ptr, vanillaRenderDistance); ptr += 4;
         MemoryUtil.memPutFloat(ptr, translucentFadeWidth); ptr += 4;
 
+        //DH-style overdraw prevention: LOD fragments are discarded only within the radius
+        // verified to be fully covered by vanilla chunks (0 disables all discarding)
+        MemoryUtil.memPutFloat(ptr, ChunkBoundRenderer.getOverdrawCutoffBlocks()); ptr += 4;
+
         UploadStream.INSTANCE.commit();
     }
 
@@ -187,6 +192,10 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         glDisable(GL_CULL_FACE);
         glDisable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
+        //Push LODs slightly behind vanilla so identical geometry in the overlap ring
+        // (where both vanilla and LOD render) resolves to vanilla instead of z-fighting
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 2.0f);
         this.terrainShader.bind();
         glBindVertexArray(GlVertexArray.STATIC_VAO);//Needs to be before binding
         this.pipeline.setupAndBindOpaque(viewport);
@@ -203,6 +212,8 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(0.0f, 0.0f);
         glEnable(GL_CULL_FACE);
         glBindVertexArray(0);
         glBindSampler(0, 0);

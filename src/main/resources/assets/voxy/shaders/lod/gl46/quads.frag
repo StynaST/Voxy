@@ -157,8 +157,11 @@ void main() {
         return;
     }
 
-    //Check the minimum bounding texture and ensure we are greater than it
-    if (gl_FragCoord.z < texelFetch(depthTex, ivec2(gl_FragCoord.xy), 0).r) {
+    //DH-style overdraw prevention: only discard LOD fragments inside the radius that is
+    // verified to be fully covered by rendered vanilla chunks. Everywhere else the LOD
+    // renders and the normal depth test lets vanilla terrain win, so missing vanilla
+    // chunks never produce x-ray holes.
+    if (uOverdrawCutoff > 0.0f && length(fragmentCameraPos.xz) < uOverdrawCutoff) {
         discard;
         return;
     }

@@ -37,7 +37,7 @@ public class VoxyCommands {
                 .then(Commands.literal("world")
                         .then(Commands.argument("world_name", StringArgumentType.string())
                                 .suggests(VoxyCommands::importWorldSuggester)
-                                .executes(VoxyCommands::importWorld)))
+                                .executes(ctx -> importWorld(ctx, false))))
                 .then(Commands.literal("bobby")
                         .then(Commands.argument("world_name", StringArgumentType.string())
                                 .suggests(VoxyCommands::importBobbySuggester)
@@ -45,6 +45,13 @@ public class VoxyCommands {
                 .then(Commands.literal("raw")
                         .then(Commands.argument("path", StringArgumentType.string())
                                 .executes(VoxyCommands::importRaw)))
+                .then(Commands.literal("repair")
+                        .then(Commands.literal("world")
+                                .then(Commands.argument("world_name", StringArgumentType.string())
+                                        .suggests(VoxyCommands::importWorldSuggester)
+                                        .executes(ctx -> importWorld(ctx, true))))
+                        .then(Commands.argument("path", StringArgumentType.string())
+                                .executes(VoxyCommands::importRepair)))
                 .then(Commands.literal("zip")
                         .then(Commands.argument("zipPath", StringArgumentType.string())
                                 .executes(VoxyCommands::importZip)
@@ -114,6 +121,10 @@ public class VoxyCommands {
     }
 
     private static boolean fileBasedImporter(File directory) {
+        return fileBasedImporter(directory, false);
+    }
+
+    private static boolean fileBasedImporter(File directory, boolean repairOnly) {
         var instance = (VoxyClientInstance)VoxyCommon.getInstance();
         if (instance == null) {
             return false;
@@ -122,7 +133,8 @@ public class VoxyCommands {
         var engine = WorldIdentifier.ofEngine(Minecraft.getInstance().level);
         if (engine==null) return false;
         return instance.getImportManager().makeAndRunIfNone(engine, ()->{
-            var importer = new WorldImporter(engine, Minecraft.getInstance().level, instance.getServiceManager(), instance.savingServiceRateLimiter);
+            var importer = new WorldImporter(engine, Minecraft.getInstance().level, instance.getServiceManager(), instance.savingServiceRateLimiter)
+                    .setRepairOnly(repairOnly);
             importer.importRegionDirectoryAsync(directory);
             return importer;
         });
@@ -135,6 +147,15 @@ public class VoxyCommands {
         }
 
         return fileBasedImporter(new File(ctx.getArgument("path", String.class)))?0:1;
+    }
+
+    private static int importRepair(CommandContext<CommandSourceStack> ctx) {
+        if (VoxyCommon.getInstance() == null) {
+            ctx.getSource().sendFailure(Component.translatable("Voxy must be enabled in settings to use this"));
+            return 1;
+        }
+
+        return fileBasedImporter(new File(ctx.getArgument("path", String.class)), true)?0:1;
     }
 
     private static int importBobby(CommandContext<CommandSourceStack> ctx) {
@@ -196,7 +217,7 @@ public class VoxyCommands {
         return sb.buildFuture();
     }
 
-    private static int importWorld(CommandContext<CommandSourceStack> ctx) {
+    private static int importWorld(CommandContext<CommandSourceStack> ctx, boolean repairOnly) {
         if (VoxyCommon.getInstance() == null) {
             ctx.getSource().sendFailure(Component.translatable("Voxy must be enabled in settings to use this"));
             return 1;
@@ -213,7 +234,7 @@ public class VoxyCommands {
                     .resolve("region")
                     .toFile();
             if (!dimFile.isDirectory()) return 1;
-            return fileBasedImporter(dimFile)?0:1;
+            return fileBasedImporter(dimFile, repairOnly)?0:1;
             //We are in a world directory, so import the current dimension we are in
             /*
             for (var dim : new String[]{"overworld", "the_nether", "the_end"}) {//This is so annoying that you cant loop through all the dimensions
@@ -231,7 +252,7 @@ public class VoxyCommands {
             if (!(name.endsWith("region"))) {
                 file = file.resolve("region");
             }
-            return fileBasedImporter(file.toFile()) ? 0 : 1;
+            return fileBasedImporter(file.toFile(), repairOnly) ? 0 : 1;
         }
     }
 

@@ -145,6 +145,37 @@ public class WorldUpdater {
         }
     }
 
+    //Returns true if the stored lvl0 data covering the given chunk section is entirely air or has
+    // never been stored, i.e. an import may write here without clobbering existing terrain data
+    //Note: does not apply the Mine-in-Abyss position remapping that insertUpdate does
+    public static boolean isStoredSectionAir(WorldEngine world, VoxelizedSection section) {
+        var worldSection = world.acquireIfExists(0, section.x >> 1, section.y >> 1, section.z >> 1);
+        if (worldSection == null) {
+            return true;
+        }
+        try {
+            final var secD = worldSection.data;
+            int bx = (section.x & 1) << 4;
+            int by = (section.y & 1) << 4;
+            int bz = (section.z & 1) << 4;
+            int baseSec = bx | (bz << 5) | (by << 10);
+            final int secMsk = 0b1100 | (0xf << 5) | (0xf << 10);
+            final int iSecMsk1 = (~secMsk) + 1;
+            int secIdx = 0;
+            for (int i = 0; i <= 0xFFF; i += 4) {
+                int cSecIdx = secIdx + baseSec;
+                secIdx = (secIdx + iSecMsk1) & secMsk;
+                if (!(Mapper.isAir(secD[cSecIdx+0]) && Mapper.isAir(secD[cSecIdx+1])
+                        && Mapper.isAir(secD[cSecIdx+2]) && Mapper.isAir(secD[cSecIdx+3]))) {
+                    return false;
+                }
+            }
+            return true;
+        } finally {
+            worldSection.release();
+        }
+    }
+
     public static void main(String[] args) {
         int MSK = 0b110110010100;
         int iMSK = ~MSK;

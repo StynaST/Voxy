@@ -15,6 +15,8 @@ import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.common.Logger;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.ChunkPos;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
@@ -49,6 +51,55 @@ public class ChunkBoundRenderer {
     private static final int REMOVAL_DELAY_FRAMES = 12;
     private final LongArrayList[] delayedRemovalQueue = new LongArrayList[REMOVAL_DELAY_FRAMES];
     private int delayQueueIndex = 0;
+
+    //DH-style overdraw prevention: track built chunk columns and derive the largest radius
+    // around the camera that is fully covered by vanilla chunks. LODs are only discarded
+    // inside that verified radius, so gaps in vanilla rendering never punch x-ray holes.
+    private final Long2IntOpenHashMap columnCounts = new Long2IntOpenHashMap();
+    private boolean coverageDirty = true;
+    private int lastCamCx = Integer.MIN_VALUE;
+    private int lastCamCz = Integer.MIN_VALUE;
+    private static volatile float overdrawCutoffBlocks = 0.0f;
+
+    public static float getOverdrawCutoffBlocks() {
+        return overdrawCutoffBlocks;
+    }
+
+    private static long columnKey(long sectionPos) {
+        return ChunkPos.asLong(SectionPos.x(sectionPos), SectionPos.z(sectionPos));
+    }
+
+    public void updateCoverage(double camX, double camZ) {
+        int cx = ((int) Math.floor(camX)) >> 4;
+        int cz = ((int) Math.floor(camZ)) >> 4;
+        if (!this.coverageDirty && cx == this.lastCamCx && cz == this.lastCamCz) {
+            return;
+        }
+        this.coverageDirty = false;
+        this.lastCamCx = cx;
+        this.lastCamCz = cz;
+
+        int maxR = Minecraft.getInstance().options.getEffectiveRenderDistance();
+        int radius = -1;
+        if (this.columnCounts.containsKey(ChunkPos.asLong(cx, cz))) {
+            radius = 0;
+            outer:
+            while (radius < maxR) {
+                int nr = radius + 1;
+                for (int dx = -nr; dx <= nr; dx++) {
+                    for (int dz = -nr; dz <= nr; dz++) {
+                        if (Math.max(Math.abs(dx), Math.abs(dz)) != nr) continue;
+                        if (!this.columnCounts.containsKey(ChunkPos.asLong(cx + dx, cz + dz))) {
+                            break outer;
+                        }
+                    }
+                }
+                radius = nr;
+            }
+        }
+        //One chunk safety margin: the outermost complete ring may still be partially meshed
+        overdrawCutoffBlocks = Math.max(0, (radius - 1) * 16);
+    }
 
     private final AbstractRenderPipeline pipeline;
     public ChunkBoundRenderer(AbstractRenderPipeline pipeline) {
@@ -197,6 +248,11 @@ public class ChunkBoundRenderer {
             Logger.warn("Chunk not in map: " + pos);
             return;
         }
+        long colKey = columnKey(pos);
+        if (this.columnCounts.addTo(colKey, -1) <= 1) {
+            this.columnCounts.remove(colKey);
+        }
+        this.coverageDirty = true;
         if (idx == this.chunk2idx.size()) {
             //Dont need to do anything as heap is already compact
             return;
@@ -226,6 +282,9 @@ public class ChunkBoundRenderer {
         int idx = this.chunk2idx.size();
         this.chunk2idx.put(pos, idx);
         this.idx2chunk[idx] = pos;
+
+        this.columnCounts.addTo(columnKey(pos), 1);
+        this.coverageDirty = true;
 
         this.put(idx, pos);
     }
@@ -263,6 +322,9 @@ public class ChunkBoundRenderer {
         for (LongArrayList queue : this.delayedRemovalQueue) {
             queue.clear();
         }
+        this.columnCounts.clear();
+        this.coverageDirty = true;
+        overdrawCutoffBlocks = 0.0f;
     }
 
     public void free() {
