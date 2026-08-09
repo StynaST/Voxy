@@ -1,0 +1,28 @@
+{
+    "package": "me.cortex.voxy.client.mixin",
+    "required": true,
+    "refmap": "${mixin_refmap}",
+    "target": "@env(DEFAULT)",
+    "minVersion": "0.8.5",
+    "compatibilityLevel": "JAVA_8",
+    "mixins": [],
+    "server": [],
+    "client": [
+        "minecraft.AccessorBlockStairs",
+        "minecraft.AccessorEntityRenderer",
+        "minecraft.MixinChunkProviderClient",
+        "minecraft.MixinEntityRendererFog",
+        "minecraft.MixinFramebufferDepthTexture",
+        "minecraft.MixinMinecraftStartup",
+        "minecraft.MixinRenderGlobal",
+        "minecraft.MixinRenderGlobalIngest",
+        "minecraft.MixinUtilRunTask",
+        "sodium.AccessorChunkTracker",
+        "sodium.AccessorSimpleWorldRenderer",
+        "sodium.MixinChunkJobQueue",
+        "sodium.MixinDefaultChunkRenderer",
+        "sodium.MixinRenderSectionManager",
+        "sodium.MixinSimpleWorldRenderer",
+        "sodium.MixinVisibleChunkCollector"
+    ]
+}

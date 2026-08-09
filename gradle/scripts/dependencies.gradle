@@ -1,0 +1,137 @@
+apply from: 'gradle/scripts/helpers.gradle'
+
+repositories {
+    // CleanroomMC: strip-latest-forge-requirements, osxnarratorblocker, mixinbooter
+    maven {
+        name 'CleanroomMC Maven'
+        url 'https://maven.cleanroommc.com'
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name 'CleanroomMC CurseMaven'
+                url 'https://curse.cleanroommc.com'
+            }
+        }
+        filter {
+            includeGroup 'curse.maven'
+        }
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name 'Modrinth'
+                url 'https://api.modrinth.com/maven'
+            }
+        }
+        filter {
+            includeGroup 'maven.modrinth'
+        }
+    }
+    // Celeritas' own maven, used for legacy-lwjgl3 and friends.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name 'TauMC'
+                url 'https://maven.taumc.org/releases'
+            }
+        }
+        filter {
+            includeGroupAndSubgroups 'org.taumc'
+        }
+    }
+    mavenCentral()
+    mavenLocal() // Must be last for caching to work
+}
+
+configurations {
+    shade
+    implementation.extendsFrom shade
+}
+
+dependencies {
+    // Include StripLatestForgeRequirements by default for the dev env, saves everyone a hassle
+    runtimeOnly 'com.cleanroommc:strip-latest-forge-requirements:1.0'
+    // Include OSXNarratorBlocker by default for the dev env, for M1+ Macs
+    runtimeOnly 'com.cleanroommc:osxnarratorblocker:1.0'
+
+    // --- Celeritas -----------------------------------------------------------------------
+    // Celeritas is the 1.12.2 Sodium/Embeddium backport that Voxy renders through. It is not
+    // published to any public maven, so the jars in libs/ were repacked from the extracted
+    // distribution the project ships with. Readable sources live in ../celeritas-repo (upstream
+    // git) and ../celeritas-src (Vineflower decompile of the exact jar below), for reference only.
+    compileOnly files('libs/celeritas-2.4.0-dev.jar')
+    compileOnly files('libs/celeritasextra-0.6.3.jar')
+
+    // --- LWJGL 3 -------------------------------------------------------------------------
+    // Cleanroom Loader bundles LWJGL 3.4.1 (lwjgl, glfw, jemalloc, openal, opengl, stb, tinyfd),
+    // so those are compile-only -- the loader provides them at runtime. The `unsafe` classifier
+    // matches what Cleanroom installs, and is what upstream Voxy compiles against too.
+    compileOnly "org.lwjgl:lwjgl:${propertyString('lwjgl_version')}:unsafe"
+    compileOnly "org.lwjgl:lwjgl-opengl:${propertyString('lwjgl_version')}"
+
+    // Cleanroom does NOT bundle lmdb or zstd, but Voxy needs both, so they get shaded in.
+    // The version MUST stay pinned to the loader's LWJGL version: these modules link against
+    // org.lwjgl.system internals, and a mismatch breaks native loading at runtime.
+    shade "org.lwjgl:lwjgl-lmdb:${propertyString('lwjgl_version')}"
+    shade "org.lwjgl:lwjgl-zstd:${propertyString('lwjgl_version')}"
+    for (String nativeClassifier : ['natives-windows', 'natives-linux']) {
+        shade "org.lwjgl:lwjgl-lmdb:${propertyString('lwjgl_version')}:${nativeClassifier}"
+        shade "org.lwjgl:lwjgl-zstd:${propertyString('lwjgl_version')}:${nativeClassifier}"
+    }
+
+    // JOML. Celeritas shades its own copy to org.embeddedt.embeddium.impl.shadow.joml, but Voxy
+    // uses the real one, and Cleanroom ships it, so compile-only is enough.
+    compileOnly "org.joml:joml:${propertyString('joml_version')}"
+
+    // --- Storage backends and compressors ------------------------------------------------
+    // All four of Voxy's storage backends are in scope, so every one of these is shaded.
+    shade "org.rocksdb:rocksdbjni:${propertyString('rocksdb_version')}"
+    shade "redis.clients:jedis:${propertyString('jedis_version')}"
+    shade "org.apache.commons:commons-pool2:${propertyString('commons_pool_version')}"
+    shade "org.lz4:lz4-java:${propertyString('lz4_version')}"
+    shade "org.tukaani:xz:${propertyString('xz_version')}"
+    // Needed by the Vintage Horizons / Distant Horizons importer, which reads a SQLite database.
+    shade "org.xerial:sqlite-jdbc:${propertyString('sqlite_version')}"
+}
+
+// Need reobfJar to use uber jars, so dependencies that are shaded in are present
+// Only redirect reobfJar through shadowJar when there's actually something to shade
+if (!configurations.shade.dependencies.empty) {
+    tasks.named('reobfJar').configure {
+        inputJar.set(tasks.named('shadowJar').flatMap({ it.archiveFile }))
+    }
+}
+
+// By default, it will use a "uberdev" suffix, and only pack shade configuration dependencies
+// Uberdev: dev jar w/ dependencies, NOT a reobfuscated artifact!
+// The end result (reobfJar) will have a non-suffixed name, as unlike normal shading envs, reobfJar is the end task
+tasks.shadowJar {
+    // Shadow wires shadowJar into the assemble task, so it runs even when nothing is shaded
+    enabled = !project.configurations.shade.dependencies.empty
+    archiveClassifier = 'uberdev'
+    configurations = [ project.configurations.shade ]
+
+    // Relocate the libraries that Forge (or another mod) is likely to also have on the classpath.
+    // Jedis drags in gson, slf4j, org.json and commons-pool2; Forge 1.12.2 already ships its own
+    // gson, and duplicate copies of any of these are a classic mod-conflict source.
+    //
+    // Deliberately NOT relocated: rocksdb, lz4/jpountz, sqlite-jdbc and the LWJGL modules. All four
+    // bind native code whose symbol names are derived from the java package, so moving them breaks
+    // native loading. xz is left alone too -- nothing else ships it, and DHImporter probes for it
+    // by name.
+    relocate 'com.google.gson', 'me.cortex.voxy.shadow.gson'
+    relocate 'org.json', 'me.cortex.voxy.shadow.json'
+    relocate 'org.slf4j', 'me.cortex.voxy.shadow.slf4j'
+    relocate 'org.apache.commons.pool2', 'me.cortex.voxy.shadow.pool2'
+    relocate 'redis.clients', 'me.cortex.voxy.shadow.jedis'
+
+    // These jars each carry their own module descriptor and signature files; keeping them would
+    // make the merged jar fail verification under Cleanroom's classloader.
+    exclude 'module-info.class'
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude 'META-INF/versions/*/module-info.class'
+    mergeServiceFiles()
+}

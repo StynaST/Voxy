@@ -1,0 +1,32 @@
+# eclipse
+bin
+*.launch
+.settings
+.metadata
+.classpath
+.project
+
+# idea
+out
+*.ipr
+*.iws
+*.iml
+.idea
+
+# gradle
+build
+.gradle
+
+# kate
+*.kate-swp
+
+# other
+eclipse
+run
+
+# Celeritas jars, repacked locally from the shipped mod. Not ours to redistribute, and
+# compileOnly anyway -- drop them into libs/ by hand to build. See PORT.md section 3.
+libs/
+
+# stray dir from a shell that expanded $HOME literally
+$HOME/
