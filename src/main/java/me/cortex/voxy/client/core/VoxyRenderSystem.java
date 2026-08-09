@@ -185,6 +185,20 @@ public class VoxyRenderSystem {
     }
 
 
+    //resetTextureUnits leaves units 0 and 1 unbound, but vanilla holds the block atlas and lightmap
+    //there for the whole frame, so everything drawn after Voxy (the GUI included) sampled a dead
+    //unit. Rebound from their known sources rather than a glGet readback, which stalls the driver.
+    private static void voxy$rebindVanillaTextures() {
+        var mc = Minecraft.getMinecraft();
+        GlStateManager.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        GlStateManager.bindTexture(LightMapHelper.getLightmapTextureId());
+        GlStateManager.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        var atlas = mc.getTextureMapBlocks();
+        if (atlas != null) {
+            GlStateManager.bindTexture(atlas.getGlTextureId());
+        }
+    }
+
     /**
      * Clears the 12 texture units Voxy uses.
      *
@@ -197,21 +211,6 @@ public class VoxyRenderSystem {
      * <p>So the tracked units go through GlStateManager and the rest are unbound with DSA, which
      * keeps no state of its own. The active unit is left back on 0, where vanilla expects it.
      */
-    //Voxy leaves units 0 and 1 unbound and depthFunc on GL_LESS; vanilla holds the block atlas and
-    //lightmap there for the whole frame and draws terrain with GL_LEQUAL, so everything after this
-    //(GUI included) sampled dead units. Rebound from the known sources rather than a glGet readback.
-    private static void voxy$rebindVanillaTextures() {
-        var mc = Minecraft.getMinecraft();
-        GlStateManager.setActiveTexture(OpenGlHelper.lightmapTexUnit);
-        GlStateManager.bindTexture(LightMapHelper.getLightmapTextureId());
-        GlStateManager.setActiveTexture(OpenGlHelper.defaultTexUnit);
-        var atlas = mc.getTextureMapBlocks();
-        if (atlas != null) {
-            GlStateManager.bindTexture(atlas.getGlTextureId());
-        }
-        GlStateManager.depthFunc(GL_LEQUAL);
-    }
-
     private static void voxy$resetTextureUnits() {
         for (int i = 0; i < 12; i++) {
             if (i < 8) {
@@ -404,8 +403,10 @@ public class VoxyRenderSystem {
             glBlendFunc(0, 0);
             GlStateManager.disableBlend();
             glDisable(GL_BLEND);
-            GlStateManager.depthFunc(GL_LESS);
-            glDepthFunc(GL_LESS);
+            //GL_LEQUAL, not upstream's GL_LESS: that is modern MC's default, 1.12.2 draws terrain
+            //and the GUI with LEQUAL and never sets it back per frame.
+            GlStateManager.depthFunc(GL_LEQUAL);
+            glDepthFunc(GL_LEQUAL);
 
             //((SodiumShader) Iris.getPipelineManager().getPipelineNullable().getSodiumPrograms().getProgram(DefaultTerrainRenderPasses.CUTOUT).getInterface()).setupState(DefaultTerrainRenderPasses.CUTOUT, fogParameters);
         }

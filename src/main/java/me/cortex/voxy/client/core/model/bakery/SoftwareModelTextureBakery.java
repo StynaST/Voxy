@@ -136,6 +136,31 @@ public class SoftwareModelTextureBakery {
     //Temporary: fluids bake black, and every step of this path is silent. One line per state+face.
     private static final java.util.Set<String> FLUID_TRACED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    //Average of the rasterized face, to tell "the bakery produced black" from "the shader draws it black"
+    private static void voxy$traceBakedFace(IBlockState state, int face, long facePtr) {
+        String key = "out/" + state.getBlock().getRegistryName() + "/" + face;
+        if (!FLUID_TRACED.add(key)) return;
+        int texels = ModelFactory.MODEL_TEXTURE_SIZE * ModelFactory.MODEL_TEXTURE_SIZE;
+        long r = 0, g = 0, b = 0, a = 0;
+        int written = 0;
+        for (int i = 0; i < texels; i++) {
+            int colour = (int) MemoryUtil.memGetLong(facePtr + i * 8L);
+            int alpha = (colour >>> 24) & 0xFF;
+            if (alpha == 0) continue;
+            written++;
+            r += colour & 0xFF;
+            g += (colour >>> 8) & 0xFF;
+            b += (colour >>> 16) & 0xFF;
+            a += alpha;
+        }
+        if (written == 0) {
+            me.cortex.voxy.common.Logger.info("[fluid bake] " + key + " no texels written");
+            return;
+        }
+        me.cortex.voxy.common.Logger.info("[fluid bake] " + key + " texels=" + written
+                + " avgRGBA=" + (r/written) + "," + (g/written) + "," + (b/written) + "," + (a/written));
+    }
+
     private void voxy$traceFluid(IBlockState state, int face, boolean rendered, BufferBuilder builder,
                                  BlockRenderLayer layer, boolean tinted) {
         String key = state.getBlock().getRegistryName() + "/" + face;
@@ -261,6 +286,7 @@ public class SoftwareModelTextureBakery {
                 this.rasterizer.setBlending(!rasterAsUV);
                 this.rasterizer.raster(VIEWS[i], this.translucentVC);
                 UnsafeUtil.memcpy(this.rasterizer.getRawFramebuffer(), outputBuffer+(SINGLE_FACE_OUTPUT_SIZE*i));
+                voxy$traceBakedFace(state, i, outputBuffer + (SINGLE_FACE_OUTPUT_SIZE*i));
             }
         }
 

@@ -30,7 +30,29 @@ public record FogParameters(float environmentalStart,
         if (entityRenderer == null || !fog.fog.currentState) {
             return NONE;
         }
-        return new FogParameters(fog.start, fog.end,
+
+        float start = fog.start;
+        float end = fog.end;
+        if (fog.mode != GL_LINEAR) {
+            //Underwater, lava and cloud fog are EXP/EXP2, where start/end are unused and hold
+            //whatever the last linear pass left behind. Voxy's shader only understands a linear
+            //range, so derive the distance at which the exponential has essentially reached full
+            //opacity; otherwise the LODs get fogged by stale numbers.
+            float density = Math.max(fog.density, 1.0e-4f);
+            float distance = fog.mode == GL_EXP2
+                    ? (float) (Math.sqrt(-Math.log(EXP_FOG_CUTOFF)) / density)
+                    : (float) (-Math.log(EXP_FOG_CUTOFF) / density);
+            start = 0;
+            end = distance;
+        }
+
+        return new FogParameters(start, end,
                 entityRenderer.fogColorRed, entityRenderer.fogColorGreen, entityRenderer.fogColorBlue, 1.0f);
     }
+
+    /** Residual visibility treated as "fully fogged" when flattening exponential fog to a range. */
+    private static final float EXP_FOG_CUTOFF = 0.02f;
+
+    private static final int GL_LINEAR = 9729;
+    private static final int GL_EXP2 = 2049;
 }

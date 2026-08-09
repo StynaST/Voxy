@@ -398,9 +398,10 @@ public class ModelFactory {
             isBiomeColourDependent = isBiomeDependentColour(blockState);
         }
 
+
         ModelEntry entry;
         {//Deduplicate same entries
-            entry = new ModelEntry(textureData, clientFluidStateId, isBiomeColourDependent||!tinted?-1:captureColourConstant(blockState, DEFAULT_BIOME)|0xFF000000);
+            entry = new ModelEntry(textureData, clientFluidStateId, isBiomeColourDependent||!tinted?-1:tintColourForUpload(captureColourConstant(blockState, DEFAULT_BIOME)));
             int possibleDuplicate = this.modelTexture2id.getInt(entry);
             if (possibleDuplicate != -1) {//Duplicate found
                 this.idMappings[blockId] = possibleDuplicate;
@@ -625,7 +626,7 @@ public class ModelFactory {
                 uploadResult.biomeUploadIndex = biomeIndex;
                 long clrUploadPtr = (uploadResult.biomeUpload = new MemoryBuffer(4L * this.biomes.size())).address;
                 for (var biome : this.biomes) {
-                    MemoryUtil.memPutInt(clrUploadPtr, captureColourConstant(blockState, biome) | 0xFF000000); clrUploadPtr += 4;
+                    MemoryUtil.memPutInt(clrUploadPtr, tintColourForUpload(captureColourConstant(blockState, biome))); clrUploadPtr += 4;
                 }
             }
         }
@@ -736,9 +737,13 @@ public class ModelFactory {
             long clrUploadPtr = result.biomeColourBuffer.address + biomeIndex * 4L;
             for (var biomeE : this.biomes) {
                 if (biomeE == null) {
-                    continue;//If null, ignore
+                    //Skipping without advancing shifted every colour after a hole into the wrong
+                    //slot. The list is padded with nulls to reach a biome id, so holes are normal
+                    //and the shader indexes this buffer by that id.
+                    clrUploadPtr += 4;
+                    continue;
                 }
-                MemoryUtil.memPutInt(clrUploadPtr, captureColourConstant(entry.state, biomeE)|0xFF000000); clrUploadPtr += 4;
+                MemoryUtil.memPutInt(clrUploadPtr, tintColourForUpload(captureColourConstant(entry.state, biomeE))); clrUploadPtr += 4;
             }
         }
 
@@ -778,6 +783,19 @@ public class ModelFactory {
 
     private static int captureColourConstant(IBlockState state, Biome biome) {
         return probeTint(state, biome);
+    }
+
+    /**
+     * The shader reads {@code 0xFFFFFFFF} as its "no tint" sentinel ({@code tintColour != uint(-1)}
+     * in quad_util.glsl), so an opaque pure-white tint means "do not tint" and the face is
+     * multiplied by zero instead. 1.12.2 returns exactly {@code 0xFFFFFF} from
+     * {@code getWaterColorMultiplier} for almost every biome, which is why water rendered black
+     * while grass and leaves — never pure white — were fine. Upstream never hits this: modern water
+     * tints are blue. One channel dropped by 1/255 is imperceptible and keeps the shader untouched.
+     */
+    private static int tintColourForUpload(int colour) {
+        int packed = colour | 0xFF000000;
+        return packed == 0xFFFFFFFF ? 0xFFFEFFFF : packed;
     }
 
     /**

@@ -20,6 +20,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(value = EntityRenderer.class, priority = 900)
 public class MixinEntityRendererFog {
+    @org.spongepowered.asm.mixin.Unique
+    private static final int GL_LINEAR = 9729;
 
     @Inject(method = "setupFog", at = @At("RETURN"))
     private void voxy$modifyFog(int startCoords, float partialTicks, CallbackInfo ci) {
@@ -27,8 +29,16 @@ public class MixinEntityRendererFog {
         if (IVoxyRenderSystemHolder.getNullable() == null) return;
 
         var fog = GlStateManager.fogState;
-        //Upstream leaves environmental (water/lava/blindness) fog alone when it is very close, since
-        // that fog is the effect itself rather than a draw-distance limit
+        //Water, lava and cloud fog are EXP/EXP2 and are the effect itself, not a draw-distance
+        //limit, so they are left exactly as vanilla set them -- which is also what makes night
+        //vision underwater reach as far in the LODs as it does in vanilla chunks. Only linear fog
+        //is the render-distance cutoff Voxy needs to push past. Checking the mode matters: for
+        //exponential fog start/end are unused, so the old `end < 10` test read a stale value and
+        //could either skip a real cutoff or stomp the underwater effect.
+        if (fog.mode != GL_LINEAR) return;
+
+        //Upstream leaves environmental fog alone when it is very close, since that fog is the
+        //effect itself rather than a draw-distance limit
         boolean fogIsDamnClose = fog.end < 10;
         if (!VoxyConfig.CONFIG.useEnvironmentalFog && !fogIsDamnClose) {
             GlStateManager.setFogStart(99999999f);
