@@ -33,7 +33,13 @@ public class WorldUpdater {
                 previousSection = null;
             }
 
-            long status = insertSectionLvlIntoWorld(section, worldSection);
+            long status;
+            worldSection.acquireDataWrite();
+            try {
+                status = insertSectionLvlIntoWorld(section, worldSection);
+            } finally {
+                worldSection.releaseDataWrite();
+            }
             boolean didStateChange = (status&1)==1;
             int airCount = (int) ((status>>1)&0x1FFF);
 

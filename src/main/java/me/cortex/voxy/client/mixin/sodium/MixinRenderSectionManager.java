@@ -36,6 +36,7 @@ public class MixinRenderSectionManager {
     @Inject(method = "onChunkAdded", at = @At("HEAD"))
     private void voxy$ingestOnAdd(int x, int z, CallbackInfo ci) {
         if (!VoxyConfig.CONFIG.ingestEnabled) return;
+        if (!Minecraft.getMinecraft().isCallingFromMinecraftThread()) return;
         var world = Minecraft.getMinecraft().world;
         if (world == null) return;
         var chunk = world.getChunkProvider().getLoadedChunk(x, z);
@@ -47,6 +48,7 @@ public class MixinRenderSectionManager {
     @Inject(method = "onChunkRemoved", at = @At("HEAD"))
     private void voxy$ingestOnRemove(int x, int z, CallbackInfo ci) {
         if (!VoxyConfig.CONFIG.ingestEnabled) return;
+        if (!Minecraft.getMinecraft().isCallingFromMinecraftThread()) return;
         var world = Minecraft.getMinecraft().world;
         if (world == null) return;
         //Get the chunk at all costs: by the time the render graph drops it, the normal lookup may
@@ -67,7 +69,8 @@ public class MixinRenderSectionManager {
 
         //Upstream keys off Sodium's isInvisible() flipping. Celeritas has no such flag; a section
         // that changed and now carries data is the same event.
-        if (!changed || info == null || !VoxyConfig.CONFIG.ingestEnabled) {
+        if (!changed || info == null || !VoxyConfig.CONFIG.ingestEnabled ||
+                !Minecraft.getMinecraft().isCallingFromMinecraftThread()) {
             return changed;
         }
         var vrs = IVoxyRenderSystemHolder.getNullable();

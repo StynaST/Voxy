@@ -48,7 +48,6 @@ import java.util.List;
 
 import static org.lwjgl.opengl.ARBDirectStateAccess.glGetTextureLevelParameteri;
 import static org.lwjgl.opengl.GL11.glGetIntegerv;
-import static org.lwjgl.opengl.GL11.GL_PROJECTION_MATRIX;
 import static org.lwjgl.opengl.GL11C.*;
 import static org.lwjgl.opengl.GL30C.*;
 import static org.lwjgl.opengl.GL33.glBindSampler;
@@ -499,33 +498,16 @@ public class VoxyRenderSystem {
         ).mulLocal(makeProjectionMatrix(nearVoxy, 16*3000));
     }*/
 
-    private static final java.nio.FloatBuffer PROJECTION_SCRATCH = org.lwjgl.BufferUtils.createFloatBuffer(16);
-
-    private static Matrix4f readGlProjectionMatrix() {
-        PROJECTION_SCRATCH.clear();
-        glGetFloatv(GL_PROJECTION_MATRIX, PROJECTION_SCRATCH);
-        return new Matrix4f(PROJECTION_SCRATCH);
-    }
-
     private static Matrix4f computeProjectionMat(RenderProperties properties, Matrix4fc base) {
-
-        //this jank is to capture the extra crap they inject like viewbobbing
-        //1.12.2 has no render state object holding the projection: it only exists in GL state, which
-        // is where the view bobbing and hurt-tilt jank this is trying to capture ends up anyway.
-        var rawMCProj = readGlProjectionMatrix();
-        var extraProjection = rawMCProj.invert(new Matrix4f()).mul(base);
+        //`base` is the projection the vanilla chunks were rasterised with, so only the depth range is
+        //replaced. Upstream composes (glProjection^-1 * base) to catch projection-space extras; there
+        //are none on 1.12.2 (bobbing/hurt tilt go to the modelview), and that delta breaks whenever a
+        //mod desyncs GL from ActiveRenderInfo -- which Weather2 Remastered does.
 
         float near = getRenderDistance()<=32.0f?8f:16f;
         near = VoxyClient.disableSodiumChunkRender()?0.1f:near;
 
         float far = 16*3000;
-
-        /* jank way of just modifying the base raw
-        if (true) {
-            return new Matrix4f(base)
-                    .m22((far + near) / (near - far))
-                    .m32((far+far) * near / (near - far));
-        }*/
 
         //Flip near and far on reverse depth
         if (properties.isReverseZ()) {
@@ -534,11 +516,9 @@ public class VoxyRenderSystem {
             far = tmp;
         }
 
-        return extraProjection.mulLocal(
-                new Matrix4f(rawMCProj)
+        return new Matrix4f(base)
                 .m22((properties.isZero2One()?far:(far+near)) / (near - far))
-                .m32((properties.isZero2One()?far:(far+far)) * near / (near - far))
-        );
+                .m32((properties.isZero2One()?far:(far+far)) * near / (near - far));
     }
 
     private boolean frexStillHasWork() {

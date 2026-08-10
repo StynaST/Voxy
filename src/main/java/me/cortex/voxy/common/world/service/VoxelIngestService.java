@@ -38,7 +38,9 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 public class VoxelIngestService {
     private static final ThreadLocal<VoxelizedSection> SECTION_CACHE = ThreadLocal.withInitial(VoxelizedSection::createEmpty);
     private final Service service;
-    private record IngestSection(int cx, int cy, int cz, WorldEngine world, ExtendedBlockStorage section, NibbleArray blockLight, NibbleArray skyLight, byte[] biomes){}
+    private record IngestSection(int cx, int cy, int cz, WorldEngine world,
+                                 WorldConversionFactory.BlockStateSnapshot blockStates, boolean empty,
+                                 NibbleArray blockLight, NibbleArray skyLight, byte[] biomes){}
     private final ConcurrentLinkedDeque<IngestSection> ingestQueue = new ConcurrentLinkedDeque<>();
 
     public VoxelIngestService(ServiceManager pool) {
@@ -48,16 +50,15 @@ public class VoxelIngestService {
     private void processJob() {
         var task = this.ingestQueue.pop();
         try {
-            var section = task.section;
             var vs = SECTION_CACHE.get().setPosition(task.cx, task.cy, task.cz);
 
-            if (section.isEmpty() && task.blockLight == null && task.skyLight == null) {//If the chunk section has lighting data, propagate it
+            if (task.empty && task.blockLight == null && task.skyLight == null) {//If the chunk section has lighting data, propagate it
                 WorldUpdater.insertUpdate(task.world, vs.zero());
             } else {
                 VoxelizedSection csec = WorldConversionFactory.convert(
                         vs,
                         task.world.getMapper(),
-                        section.getData(),
+                        task.blockStates,
                         getBiomeSupplier(task),
                         getLightingSupplier(task)
                 );
@@ -168,7 +169,7 @@ public class VoxelIngestService {
                 var section = sections[i];
                 if (section == null || !shouldIngestSection(section, chunkX, i, chunkZ)) continue;
                 engine.acquireRef();
-                this.ingestQueue.add(new IngestSection(chunkX, i, chunkZ, engine, section, null, null, biomes));
+                this.ingestQueue.add(new IngestSection(chunkX, i, chunkZ, engine, null, true, null, null, biomes));
                 try {
                     this.service.execute();
                 } catch (Exception e) {
@@ -187,11 +188,13 @@ public class VoxelIngestService {
             var section = sections[i];
             if (section == null || !shouldIngestSection(section, chunkX, i, chunkZ)) continue;
 
+            var blockStates = WorldConversionFactory.snapshot(section.getData());
+            boolean empty = section.isEmpty();
             var bl = copyNibble(section.getBlockLight());
             var sl = copyNibble(section.getSkyLight());
 
             engine.acquireRef();//This is not great but dont really have a better solution as all the others have there own problem
-            this.ingestQueue.add(new IngestSection(chunkX, i, chunkZ, engine, section, bl, sl, biomes));//TODO: fixme, this is technically not safe todo on the chunk load ingest, we need to copy the section data so it cant be modified while being read
+            this.ingestQueue.add(new IngestSection(chunkX, i, chunkZ, engine, blockStates, empty, bl, sl, biomes));
             try {
                 this.service.execute();
             } catch (Exception e) {
@@ -233,8 +236,10 @@ public class VoxelIngestService {
     }
 
     private boolean rawIngest0(WorldEngine engine, ExtendedBlockStorage section, int x, int y, int z, NibbleArray bl, NibbleArray sl, byte[] biomes) {
+        var blockStates = WorldConversionFactory.snapshot(section.getData());
+        boolean empty = section.isEmpty();
         engine.acquireRef();
-        this.ingestQueue.add(new IngestSection(x, y, z, engine, section, bl, sl, biomes));
+        this.ingestQueue.add(new IngestSection(x, y, z, engine, blockStates, empty, bl, sl, biomes));
         try {
             this.service.execute();
             return true;

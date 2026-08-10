@@ -11,6 +11,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.*;
+import static org.lwjgl.opengl.GL43.GL_DEPTH_STENCIL_TEXTURE_MODE;
 
 /**
  * Gives the framebuffer a depth <b>texture</b> alongside its depth renderbuffer, so Voxy can sample
@@ -26,7 +27,8 @@ import static org.lwjgl.opengl.GL30.*;
  * disagreeing, the framebuffer goes incomplete, and every subsequent draw raises
  * {@code GL_INVALID_FRAMEBUFFER_OPERATION} (1286) — which is exactly what the first test run did.
  * So the texture matches the framebuffer: packed depth-stencil when stencil is on, depth-only
- * otherwise.
+ * otherwise, bound to {@code GL_DEPTH_STENCIL_ATTACHMENT} and sampled explicitly as its depth half.
+ * Any mod can enable stencil at any time (ModularUI does), so the packed path is not an edge case.
  *
  * <p>The renderbuffer itself is left allocated and untouched, so anything that reads or deletes
  * {@code depthBuffer} still behaves. If the swap still leaves the framebuffer incomplete, the
@@ -57,7 +59,6 @@ public abstract class MixinFramebufferDepthTexture implements IVoxyDepthTextureH
         if (this.voxy$depthTexture == -1) {
             this.voxy$depthTexture = glGenTextures();
         }
-
         glBindTexture(GL_TEXTURE_2D, this.voxy$depthTexture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -66,6 +67,8 @@ public abstract class MixinFramebufferDepthTexture implements IVoxyDepthTextureH
         //Depth comparison off: Voxy reads the raw depth value, it does not use a shadow sampler
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
         if (stencil) {
+            //Sample the depth half, not the stencil half; the default is not worth relying on
+            glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE, GL_DEPTH_COMPONENT);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, self.framebufferTextureWidth, self.framebufferTextureHeight, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, (java.nio.ByteBuffer) null);
         } else {
             glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, self.framebufferTextureWidth, self.framebufferTextureHeight, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, (java.nio.ByteBuffer) null);
@@ -76,8 +79,8 @@ public abstract class MixinFramebufferDepthTexture implements IVoxyDepthTextureH
         glBindFramebuffer(GL_FRAMEBUFFER, self.framebufferObject);
 
         if (stencil) {
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, this.voxy$depthTexture, 0);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, this.voxy$depthTexture, 0);
+            //One packed texture goes on the combined attachment point
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, this.voxy$depthTexture, 0);
         } else {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, this.voxy$depthTexture, 0);
         }
@@ -95,9 +98,10 @@ public abstract class MixinFramebufferDepthTexture implements IVoxyDepthTextureH
 
     @Unique
     private static void voxy$restoreRenderbuffer(Framebuffer self, boolean stencil) {
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, self.depthBuffer);
         if (stencil) {
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, self.depthBuffer);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, self.depthBuffer);
+        } else {
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, self.depthBuffer);
         }
     }
 

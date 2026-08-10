@@ -71,12 +71,22 @@ public class SoftwareModelTextureBakery {
         glFinish();
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-        glPixelStorei(GL_PACK_ROW_LENGTH, width);
-        glPixelStorei(GL_PACK_IMAGE_HEIGHT, 0);
-        glPixelStorei(GL_PACK_SKIP_ROWS, 0);
-        glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
-        glPixelStorei(GL_PACK_ALIGNMENT, 4);
-        glGetTextureImage(texId, targetMipLevel, GL_RGBA, GL_UNSIGNED_BYTE, texture);
+        try {
+            //Zero uses the texture width. Never leak the atlas width through global pixel-pack state:
+            //mods reading small textures afterwards would use the atlas-sized row stride and overflow.
+            glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+            glPixelStorei(GL_PACK_IMAGE_HEIGHT, 0);
+            glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+            glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+            glPixelStorei(GL_PACK_ALIGNMENT, 4);
+            glGetTextureImage(texId, targetMipLevel, GL_RGBA, GL_UNSIGNED_BYTE, texture);
+        } finally {
+            glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+            glPixelStorei(GL_PACK_IMAGE_HEIGHT, 0);
+            glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+            glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+            glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        }
         this.rasterizer.setSamplerTexture(texture, width, height);
     }
 
@@ -127,55 +137,9 @@ public class SoftwareModelTextureBakery {
         if (rendered) {
             appendBufferQuads(this.fluidBuffer, consumer, meta);
         }
-        voxy$traceFluid(state, face, rendered, this.fluidBuffer, layer, tinted);
         this.fluidBuffer.reset();
 
         this.blockAccess.setAirFace(-1);
-    }
-
-    //Temporary: fluids bake black, and every step of this path is silent. One line per state+face.
-    private static final java.util.Set<String> FLUID_TRACED = java.util.concurrent.ConcurrentHashMap.newKeySet();
-
-    //Average of the rasterized face, to tell "the bakery produced black" from "the shader draws it black"
-    private static void voxy$traceBakedFace(IBlockState state, int face, long facePtr) {
-        String key = "out/" + state.getBlock().getRegistryName() + "/" + face;
-        if (!FLUID_TRACED.add(key)) return;
-        int texels = ModelFactory.MODEL_TEXTURE_SIZE * ModelFactory.MODEL_TEXTURE_SIZE;
-        long r = 0, g = 0, b = 0, a = 0;
-        int written = 0;
-        for (int i = 0; i < texels; i++) {
-            int colour = (int) MemoryUtil.memGetLong(facePtr + i * 8L);
-            int alpha = (colour >>> 24) & 0xFF;
-            if (alpha == 0) continue;
-            written++;
-            r += colour & 0xFF;
-            g += (colour >>> 8) & 0xFF;
-            b += (colour >>> 16) & 0xFF;
-            a += alpha;
-        }
-        if (written == 0) {
-            me.cortex.voxy.common.Logger.info("[fluid bake] " + key + " no texels written");
-            return;
-        }
-        me.cortex.voxy.common.Logger.info("[fluid bake] " + key + " texels=" + written
-                + " avgRGBA=" + (r/written) + "," + (g/written) + "," + (b/written) + "," + (a/written));
-    }
-
-    private void voxy$traceFluid(IBlockState state, int face, boolean rendered, BufferBuilder builder,
-                                 BlockRenderLayer layer, boolean tinted) {
-        String key = state.getBlock().getRegistryName() + "/" + face;
-        if (!FLUID_TRACED.add(key)) return;
-        var format = builder.getVertexFormat();
-        int stride = format.getSize();
-        int uvOffset = offsetOf(format, VertexFormatElement.EnumUsage.UV, 0);
-        int verts = builder.getVertexCount();
-        String uv = "n/a";
-        if (rendered && verts > 0) {
-            var bytes = builder.getByteBuffer();
-            uv = bytes.getFloat(uvOffset) + "," + bytes.getFloat(uvOffset + 4);
-        }
-        me.cortex.voxy.common.Logger.info("[fluid bake] " + key + " rendered=" + rendered
-                + " verts=" + verts + " layer=" + layer + " tinted=" + tinted + " uv0=" + uv);
     }
 
     private final float[] quadPositions = new float[4*3];
@@ -286,7 +250,6 @@ public class SoftwareModelTextureBakery {
                 this.rasterizer.setBlending(!rasterAsUV);
                 this.rasterizer.raster(VIEWS[i], this.translucentVC);
                 UnsafeUtil.memcpy(this.rasterizer.getRawFramebuffer(), outputBuffer+(SINGLE_FACE_OUTPUT_SIZE*i));
-                voxy$traceBakedFace(state, i, outputBuffer + (SINGLE_FACE_OUTPUT_SIZE*i));
             }
         }
 

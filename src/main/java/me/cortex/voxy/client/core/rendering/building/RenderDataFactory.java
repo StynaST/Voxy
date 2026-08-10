@@ -35,7 +35,8 @@ public class RenderDataFactory {
     private final WorldEngine world;
     private final ModelFactory modelMan;
 
-    //private final long[] sectionData = new long[32*32*32*2];
+    private final long[] rawSectionData = new long[WorldSection.SECTION_VOLUME];
+    private final long[] neighborSectionData = new long[WorldSection.SECTION_VOLUME];
     private final long[] sectionData = new long[32*32*32*2];
     private final long[] neighboringFaces = new long[32*32*6];
     //private final int[] neighboringOpaqueMasks = new int[32*6];
@@ -48,9 +49,11 @@ public class RenderDataFactory {
     //TODO: emit directly to memory buffer instead of long arrays
 
     //Each axis gets a max quad count of 2^16 (65536 quads) since that is the max the basic geometry manager can handle
-    private final MemoryBuffer quadBuffer = new MemoryBuffer(8*(8*(1<<16)));//6 faces + dual direction + translucents
+    private static final int QUAD_BUFFER_COUNT = 8;
+    private static final int QUADS_PER_BUFFER = 1 << 16;
+    private final MemoryBuffer quadBuffer = new MemoryBuffer(QUAD_BUFFER_COUNT * 8L * QUADS_PER_BUFFER);//6 faces + dual direction + translucents
     private final long quadBufferPtr = this.quadBuffer.address;
-    private final int[] quadCounters = new int[8];
+    private final int[] quadCounters = new int[QUAD_BUFFER_COUNT];
 
 
     private int minX;
@@ -145,7 +148,12 @@ public class RenderDataFactory {
 
 
             int bufferIdx = type+(type==2?face:0);//Translucent, double side, directional
-            long bufferOffset = (RenderDataFactory.this.quadCounters[bufferIdx]++)*8L + bufferIdx*8L*(1<<16);
+            int bufferCount = RenderDataFactory.this.quadCounters[bufferIdx];
+            if (bufferCount >= QUADS_PER_BUFFER) {
+                throw new IllegalStateException("Quad buffer " + bufferIdx + " overflowed while meshing");
+            }
+            RenderDataFactory.this.quadCounters[bufferIdx] = bufferCount + 1;
+            long bufferOffset = bufferCount*8L + bufferIdx*8L*QUADS_PER_BUFFER;
             MemoryUtil.memPutLong(RenderDataFactory.this.quadBufferPtr + bufferOffset, quad);
 
 
@@ -295,7 +303,8 @@ public class RenderDataFactory {
         if ((msk&1)!=0) {//-x
             var sec = this.world.acquire(section.lvl, section.x - 1, section.y, section.z);
             //Note this is not thread safe! (but eh, fk it)
-            var raw = sec._unsafeGetRawDataArray();
+            sec.copyDataTo(this.neighborSectionData);
+            var raw = this.neighborSectionData;
             for (int i = 0; i < 32*32; i++) {
                 this.neighboringFaces[i] = raw[(i<<5)+31];//pull the +x faces from the section
             }
@@ -304,7 +313,8 @@ public class RenderDataFactory {
         if ((msk&2)!=0) {//+x
             var sec = this.world.acquire(section.lvl, section.x + 1, section.y, section.z);
             //Note this is not thread safe! (but eh, fk it)
-            var raw = sec._unsafeGetRawDataArray();
+            sec.copyDataTo(this.neighborSectionData);
+            var raw = this.neighborSectionData;
             for (int i = 0; i < 32*32; i++) {
                 this.neighboringFaces[i+32*32] = raw[(i<<5)];//pull the -x faces from the section
             }
@@ -314,7 +324,8 @@ public class RenderDataFactory {
         if ((msk&4)!=0) {//-y
             var sec = this.world.acquire(section.lvl, section.x, section.y - 1, section.z);
             //Note this is not thread safe! (but eh, fk it)
-            var raw = sec._unsafeGetRawDataArray();
+            sec.copyDataTo(this.neighborSectionData);
+            var raw = this.neighborSectionData;
             for (int i = 0; i < 32*32; i++) {
                 this.neighboringFaces[i+32*32*2] = raw[i|(0x1F<<10)];//pull the +y faces from the section
             }
@@ -323,7 +334,8 @@ public class RenderDataFactory {
         if ((msk&8)!=0) {//+y
             var sec = this.world.acquire(section.lvl, section.x, section.y + 1, section.z);
             //Note this is not thread safe! (but eh, fk it)
-            var raw = sec._unsafeGetRawDataArray();
+            sec.copyDataTo(this.neighborSectionData);
+            var raw = this.neighborSectionData;
             for (int i = 0; i < 32*32; i++) {
                 this.neighboringFaces[i+32*32*3] = raw[i];//pull the -y faces from the section
             }
@@ -333,7 +345,8 @@ public class RenderDataFactory {
         if ((msk&16)!=0) {//-z
             var sec = this.world.acquire(section.lvl, section.x, section.y, section.z - 1);
             //Note this is not thread safe! (but eh, fk it)
-            var raw = sec._unsafeGetRawDataArray();
+            sec.copyDataTo(this.neighborSectionData);
+            var raw = this.neighborSectionData;
             for (int i = 0; i < 32*32; i++) {
                 this.neighboringFaces[i+32*32*4] = raw[Integer.expand(i,0b11111_00000_11111)|(0x1F<<5)];//pull the +z faces from the section
             }
@@ -342,7 +355,8 @@ public class RenderDataFactory {
         if ((msk&32)!=0) {//+z
             var sec = this.world.acquire(section.lvl, section.x, section.y, section.z + 1);
             //Note this is not thread safe! (but eh, fk it)
-            var raw = sec._unsafeGetRawDataArray();
+            sec.copyDataTo(this.neighborSectionData);
+            var raw = this.neighborSectionData;
             for (int i = 0; i < 32*32; i++) {
                 this.neighboringFaces[i+32*32*5] = raw[Integer.expand(i,0b11111_00000_11111)];//pull the -z faces from the section
             }
@@ -1687,8 +1701,9 @@ public class RenderDataFactory {
         // this can result in the state of all block meshes and well _everything_ from being incorrect
         //THE EXCEPTION THAT THIS THROWS CAUSES MAJOR ISSUES
 
-        //Copy section data to end of array so that can mutate array while reading safely
-        //section.copyDataTo(this.sectionData, 32*32*32);
+        // World updates continue on ingest workers while meshing. Hold a stable primitive snapshot so
+        // one mesh never mixes multiple section generations.
+        section.copyDataTo(this.rawSectionData);
 
         //We must reset _everything_ that could have changed as we dont exactly know the state due to how the model id exception
         // throwing system works
@@ -1727,7 +1742,7 @@ public class RenderDataFactory {
         Arrays.fill(this.fluidMasks, 0);
 
         //Prepare everything
-        int neighborMskAndFlags = this.prepareSectionData(section._unsafeGetRawDataArray());
+        int neighborMskAndFlags = this.prepareSectionData(this.rawSectionData);
         if ((neighborMskAndFlags&(1<<31))!=0) {//We failed to get everything so throw exception
             throw new IdNotYetComputedException(neighborMskAndFlags&((1<<20)-1), true);
         }
@@ -1773,7 +1788,7 @@ public class RenderDataFactory {
         for (int buffer = 0; buffer < 8; buffer++) {// translucent, double sided quads, 6 faces
             offsets[buffer] = coff;
             int size = this.quadCounters[buffer];
-            UnsafeUtil.memcpy(this.quadBufferPtr + (buffer*(8*(1<<16))), ptr + coff*8L, (size* 8L));
+            UnsafeUtil.memcpy(this.quadBufferPtr + (buffer*8L*QUADS_PER_BUFFER), ptr + coff*8L, (size* 8L));
             coff += size;
         }
 

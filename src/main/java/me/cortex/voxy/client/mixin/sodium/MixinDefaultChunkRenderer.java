@@ -46,12 +46,10 @@ public abstract class MixinDefaultChunkRenderer {
                                    CallbackInfo ci) {
         if (!renderPass.supportsFragmentDiscard()) {
             //Only the cutout pass, matching upstream's DefaultTerrainRenderPasses.CUTOUT check
-            voxy$traceGate("pass " + renderPass + " has no fragment discard");
             return;
         }
         var renderer = IVoxyRenderSystemHolder.getNullable();
         if (renderer == null) {
-            voxy$traceGate("no render system on the holder");
             return;
         }
 
@@ -59,15 +57,13 @@ public abstract class MixinDefaultChunkRenderer {
         var framebuffer = mc.getFramebuffer();
         int depthTexture = IVoxyDepthTextureHolder.getMainDepthTexture();
         if (framebuffer == null || depthTexture == -1) {
-            voxy$traceGate("framebuffer=" + framebuffer + " depthTexture=" + depthTexture);
             return;
         }
-        voxy$traceGate("drawing, depthTexture=" + depthTexture);
-        voxy$traceCamera(camera);
-        voxy$traceGlState("before");
 
+        //Celeritas' own matrices: what the vanilla chunks in the depth buffer were drawn with
+        var vanillaProjection = JomlConv.toVoxy(matrices.projection());
         var viewport = renderer.setupViewport(
-                JomlConv.toVoxy(matrices.projection()),
+                vanillaProjection,
                 JomlConv.toVoxy(matrices.modelView()),
                 FogParameters.captureFromGameState(),
                 framebuffer.framebufferTextureWidth,
@@ -75,70 +71,5 @@ public abstract class MixinDefaultChunkRenderer {
                 camera.x, camera.y, camera.z);
 
         renderer.renderOpaque(viewport, depthTexture, framebuffer.framebufferTexture);
-        voxy$traceGlState("after");
-    }
-
-    //Camera height, bucketed, so "nothing renders when high up" can be tied to an actual altitude.
-    @org.spongepowered.asm.mixin.Unique
-    private static final java.util.Set<Integer> voxy$seenCameraBuckets = java.util.concurrent.ConcurrentHashMap.newKeySet();
-
-    @org.spongepowered.asm.mixin.Unique
-    private static void voxy$traceCamera(CameraTransform camera) {
-        int bucket = (int) Math.floor(camera.y / 32.0);
-        if (voxy$seenCameraBuckets.add(bucket)) {
-            me.cortex.voxy.common.Logger.info("[render gate] camera y~" + (bucket * 32) + ".." + (bucket * 32 + 31));
-        }
-    }
-
-    //GL state around Voxy's draw, for the GUI corruption. Off unless -Dvoxy.glStateDebug=true,
-    //because the glGet calls stall the driver every frame.
-    @org.spongepowered.asm.mixin.Unique
-    private static final boolean VOXY_GL_STATE_DEBUG = Boolean.getBoolean("voxy.glStateDebug");
-
-    @org.spongepowered.asm.mixin.Unique
-    private static final java.util.Set<String> voxy$seenGlStates = java.util.concurrent.ConcurrentHashMap.newKeySet();
-
-    @org.spongepowered.asm.mixin.Unique
-    private static void voxy$traceGlState(String when) {
-        if (!VOXY_GL_STATE_DEBUG) return;
-        int active = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL13.GL_ACTIVE_TEXTURE);
-        StringBuilder sb = new StringBuilder();
-        sb.append("[gl state ").append(when).append("] active=").append(active - org.lwjgl.opengl.GL13.GL_TEXTURE0);
-        for (int i = 0; i < 3; i++) {
-            org.lwjgl.opengl.GL13.glActiveTexture(org.lwjgl.opengl.GL13.GL_TEXTURE0 + i);
-            sb.append(" tex").append(i).append('=')
-              .append(org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_TEXTURE_BINDING_2D))
-              .append('/')
-              .append(org.lwjgl.opengl.GL11.glIsEnabled(org.lwjgl.opengl.GL11.GL_TEXTURE_2D) ? "on" : "off");
-        }
-        org.lwjgl.opengl.GL13.glActiveTexture(active);
-        sb.append(" prog=").append(org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM));
-        sb.append(" blend=").append(org.lwjgl.opengl.GL11.glIsEnabled(org.lwjgl.opengl.GL11.GL_BLEND) ? "on" : "off");
-        sb.append(" depth=").append(org.lwjgl.opengl.GL11.glIsEnabled(org.lwjgl.opengl.GL11.GL_DEPTH_TEST) ? "on" : "off");
-        sb.append(" depthFunc=").append(org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_DEPTH_FUNC));
-        sb.append(" alpha=").append(org.lwjgl.opengl.GL11.glIsEnabled(org.lwjgl.opengl.GL11.GL_ALPHA_TEST) ? "on" : "off");
-        sb.append(" vao=").append(org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL30.GL_VERTEX_ARRAY_BINDING));
-        String line = sb.toString();
-        if (voxy$seenGlStates.add(line)) {
-            me.cortex.voxy.common.Logger.info(line);
-        }
-    }
-
-    /**
-     * Reports, once per distinct reason, why this frame did or did not reach {@code renderOpaque}.
-     *
-     * <p>Every gate above is silent and per-frame, so "no LOD terrain on screen" looks identical
-     * whether the pass is wrong, the holder is empty, the depth texture failed to attach, or the
-     * draw ran and produced nothing. Deduplicating on the message keeps this to a handful of lines
-     * per session while still distinguishing those cases.
-     */
-    @org.spongepowered.asm.mixin.Unique
-    private static final java.util.Set<String> voxy$seenGates = java.util.concurrent.ConcurrentHashMap.newKeySet();
-
-    @org.spongepowered.asm.mixin.Unique
-    private static void voxy$traceGate(String reason) {
-        if (voxy$seenGates.add(reason)) {
-            me.cortex.voxy.common.Logger.info("[render gate] " + reason);
-        }
     }
 }

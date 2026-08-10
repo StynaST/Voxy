@@ -30,6 +30,9 @@ import java.util.WeakHashMap;
  */
 public class WorldConversionFactory {
 
+    /** Immutable copy of the palette and packed block-state data captured before async ingest. */
+    public record BlockStateSnapshot(long[] storage, IBlockState[] palette) {}
+
     private static final class Cache {
         private final int[] biomeCache = new int[4*4*4];
         private final WeakHashMap<Mapper, Reference2IntOpenHashMap<IBlockState>> localMapping = new WeakHashMap<>();
@@ -57,6 +60,38 @@ public class WorldConversionFactory {
      */
     private static int bitsFromStorage(long[] raw) {
         return raw.length / 64;
+    }
+
+    /**
+     * Captures both mutable fields from one {@link BlockStateContainer} generation. Ingest callers
+     * invoke this on the client thread before handing work to Voxy workers.
+     */
+    public static BlockStateSnapshot snapshot(BlockStateContainer blockContainer) {
+        var accessor = (AccessorBlockStateContainer) blockContainer;
+
+        net.minecraft.util.BitArray storage;
+        IBlockStatePalette palette;
+        long[] raw;
+        do {
+            storage = accessor.voxy$getStorage();
+            palette = accessor.voxy$getPalette();
+            raw = storage.getBackingLongArray().clone();
+        } while (storage != accessor.voxy$getStorage() || palette != accessor.voxy$getPalette());
+
+        if (palette instanceof BlockStatePaletteRegistry) {
+            return new BlockStateSnapshot(raw, null);
+        }
+
+        int bits = bitsFromStorage(raw);
+        IBlockState[] paletteSnapshot = new IBlockState[1 << bits];
+        for (int i = 0; i < paletteSnapshot.length; i++) {
+            try {
+                paletteSnapshot[i] = palette.getBlockState(i);
+            } catch (Exception ignored) {
+                // Unmapped palette slots remain null and convert to air.
+            }
+        }
+        return new BlockStateSnapshot(raw, paletteSnapshot);
     }
 
     private static int resolveBlockId(IBlockState state, Reference2IntOpenHashMap<IBlockState> blockCache, Mapper mapper) {
@@ -95,12 +130,30 @@ public class WorldConversionFactory {
                                            BlockStateContainer blockContainer,
                                            IBiomeSupplier biomeSupplier,
                                            ILightingSupplier lightSupplier) {
-        return convert(section, stateMapper, blockContainer, biomeSupplier, lightSupplier, false, 0);
+        return convert(section, stateMapper, snapshot(blockContainer), biomeSupplier, lightSupplier, false, 0);
+    }
+
+    public static VoxelizedSection convert(VoxelizedSection section,
+                                           Mapper stateMapper,
+                                           BlockStateSnapshot blockStates,
+                                           IBiomeSupplier biomeSupplier,
+                                           ILightingSupplier lightSupplier) {
+        return convert(section, stateMapper, blockStates, biomeSupplier, lightSupplier, false, 0);
     }
 
     public static VoxelizedSection convert(VoxelizedSection section,
                                            Mapper stateMapper,
                                            BlockStateContainer blockContainer,
+                                           IBiomeSupplier biomeSupplier,
+                                           ILightingSupplier lightSupplier,
+                                           boolean shouldZoom,
+                                           long zoomSeed) {
+        return convert(section, stateMapper, snapshot(blockContainer), biomeSupplier, lightSupplier, shouldZoom, zoomSeed);
+    }
+
+    public static VoxelizedSection convert(VoxelizedSection section,
+                                           Mapper stateMapper,
+                                           BlockStateSnapshot blockStates,
                                            IBiomeSupplier biomeSupplier,
                                            ILightingSupplier lightSupplier,
                                            boolean shouldZoom,
@@ -113,21 +166,20 @@ public class WorldConversionFactory {
         var data = section.section;
         var zoomCells = cache.zoomCellCache;
 
-        var accessor = (AccessorBlockStateContainer) blockContainer;
-        var storage = accessor.voxy$getStorage();
-        var palette = accessor.voxy$getPalette();
-
-        long[] raw = storage.getBackingLongArray();
+        long[] raw = blockStates.storage();
         int bits = bitsFromStorage(raw);
         long mask = (1L << bits) - 1L;
 
-        // The registry palette is 1.12.2's global palette: indices are global block state ids
-        // rather than section-local ones, so they are mapped as they are read instead of up front.
-        boolean globalPalette = palette instanceof BlockStatePaletteRegistry;
+        // A null snapshot palette marks 1.12.2's global registry palette. Local palette entries were
+        // copied together with the packed storage on the producer thread.
+        boolean globalPalette = blockStates.palette() == null;
         int[] pc = null;
         if (!globalPalette) {
-            pc = cache.getPaletteCache(1 << bits);
-            setupLocalPalette(palette, blockCache, stateMapper, pc, bits);
+            IBlockState[] palette = blockStates.palette();
+            pc = cache.getPaletteCache(palette.length);
+            for (int i = 0; i < palette.length; i++) {
+                pc[i] = resolveBlockId(palette[i], blockCache, stateMapper);
+            }
         }
 
         {

@@ -1,7 +1,9 @@
 package me.cortex.voxy.client;
 
 import me.cortex.voxy.client.config.VoxyConfig;
+import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 import me.cortex.voxy.commonImpl.VoxyCommon;
+import net.minecraft.client.Minecraft;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.network.FMLNetworkEvent;
@@ -50,6 +52,19 @@ public class ClientSessionEvents {
         if (!inSession) throw new IllegalStateException("Cannot end a session while not in a session");
         inSession = false;
 
+        var minecraft = Minecraft.getMinecraft();
+        if (!minecraft.isCallingFromMinecraftThread()) {
+            minecraft.addScheduledTask(ClientSessionEvents::shutdownClientSession);
+            return;
+        }
+        shutdownClientSession();
+    }
+
+    private static void shutdownClientSession() {
+        var holder = IVoxyRenderSystemHolder.getNullableHolder();
+        if (holder != null) {
+            holder.voxy$shutdownRenderer();
+        }
         VoxyCommon.shutdownInstance();
     }
 }

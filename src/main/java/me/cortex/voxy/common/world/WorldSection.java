@@ -5,7 +5,6 @@ import me.cortex.voxy.commonImpl.VoxyCommon;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.util.Arrays;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -17,6 +16,7 @@ public final class WorldSection {
 
 
     static final VarHandle ATOMIC_STATE_HANDLE;
+    private static final VarHandle DATA_VERSION_HANDLE;
     private static final VarHandle NON_EMPTY_CHILD_HANDLE;
     private static final VarHandle NON_EMPTY_BLOCK_HANDLE;
     private static final VarHandle IN_SAVE_QUEUE_HANDLE;
@@ -25,6 +25,7 @@ public final class WorldSection {
     static {
         try {
             ATOMIC_STATE_HANDLE = MethodHandles.lookup().findVarHandle(WorldSection.class, "atomicState", int.class);
+            DATA_VERSION_HANDLE = MethodHandles.lookup().findVarHandle(WorldSection.class, "dataVersion", int.class);
             NON_EMPTY_CHILD_HANDLE = MethodHandles.lookup().findVarHandle(WorldSection.class, "nonEmptyChildren", byte.class);
             NON_EMPTY_BLOCK_HANDLE = MethodHandles.lookup().findVarHandle(WorldSection.class, "nonEmptyBlockCount", int.class);
             IN_SAVE_QUEUE_HANDLE = MethodHandles.lookup().findVarHandle(WorldSection.class, "inSaveQueue", boolean.class);
@@ -52,6 +53,8 @@ public final class WorldSection {
     //Serialized states
     long metadata;
     long[] data = null;
+    @SuppressWarnings("unused")
+    private volatile int dataVersion = 0;//Odd while a writer owns data; even while stable
     volatile int nonEmptyBlockCount = 0;//Note: only needed for level 0 sections
     volatile byte nonEmptyChildren;
 
@@ -206,18 +209,45 @@ public final class WorldSection {
         return ((y&M)<<10)|((z&M)<<5)|(x&M);
     }
 
+    void acquireDataWrite() {
+        while (true) {
+            int version = (int) DATA_VERSION_HANDLE.getAcquire(this);
+            if ((version & 1) != 0) {
+                Thread.onSpinWait();
+                continue;
+            }
+            if (DATA_VERSION_HANDLE.compareAndSet(this, version, version + 1)) {
+                return;
+            }
+        }
+    }
+
+    void releaseDataWrite() {
+        int version = (int) DATA_VERSION_HANDLE.getAcquire(this);
+        if ((version & 1) == 0) {
+            throw new IllegalStateException("WorldSection data write lock was not held");
+        }
+        DATA_VERSION_HANDLE.setRelease(this, version + 1);
+    }
+
     public long set(int x, int y, int z, long id) {
         //TODO: this needs to update the block counts
-        int idx = getIndex(x,y,z);
-        long old = this.data[idx];
-        this.data[idx] = id;
-        return old;
+        this.acquireDataWrite();
+        try {
+            int idx = getIndex(x,y,z);
+            long old = this.data[idx];
+            this.data[idx] = id;
+            return old;
+        } finally {
+            this.releaseDataWrite();
+        }
     }
 
     //Generates a copy of the data array, this is to help with atomic operations like rendering
     public long[] copyData() {
-        this.assertNotFree();
-        return Arrays.copyOf(this.data, this.data.length);
+        long[] copy = new long[SECTION_VOLUME];
+        this.copyDataTo(copy);
+        return copy;
     }
 
     public void copyDataTo(long[] cache) {
@@ -227,7 +257,16 @@ public final class WorldSection {
     public void copyDataTo(long[] cache, int dstOffset) {
         this.assertNotFree();
         if ((cache.length-dstOffset) < this.data.length) throw new IllegalArgumentException();
-        System.arraycopy(this.data, 0, cache, dstOffset, this.data.length);
+
+        int before;
+        int after;
+        do {
+            while (((before = (int) DATA_VERSION_HANDLE.getAcquire(this)) & 1) != 0) {
+                Thread.onSpinWait();
+            }
+            System.arraycopy(this.data, 0, cache, dstOffset, this.data.length);
+            after = (int) DATA_VERSION_HANDLE.getAcquire(this);
+        } while (before != after);
     }
 
     public static int getChildIndex(int x, int y, int z) {

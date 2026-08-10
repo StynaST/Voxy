@@ -26,6 +26,15 @@ import java.util.Map;
 @IFMLLoadingPlugin.SortingIndex(1001)//After the deobfuscation transformer
 public class VoxyCoreMod implements IFMLLoadingPlugin, IEarlyMixinLoader {
 
+    static {
+        //Cleanroom supplies the real JOML used by Voxy. Its internal Unsafe memory backend can crash
+        //Java 25's ZGC while probing matrix layouts, so select JOML's supported NIO backend before
+        //any Minecraft or mod class gets a chance to initialize org.joml.Options.
+        if (System.getProperty("joml.nounsafe") == null) {
+            System.setProperty("joml.nounsafe", "true");
+        }
+    }
+
     @Override
     public List<String> getMixinConfigs() {
         return List.of("mixins.voxy.json", "mixins.voxycommon.json");

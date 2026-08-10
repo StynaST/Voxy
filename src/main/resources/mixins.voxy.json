@@ -8,6 +8,7 @@
     "mixins": [],
     "server": [],
     "client": [
+        "compat.MixinWeather2FarPlane",
         "minecraft.AccessorBlockStairs",
         "minecraft.AccessorEntityRenderer",
         "minecraft.MixinChunkProviderClient",

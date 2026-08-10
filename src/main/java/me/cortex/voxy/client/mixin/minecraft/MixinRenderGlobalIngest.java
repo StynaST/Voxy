@@ -5,6 +5,7 @@ import me.cortex.voxy.common.world.service.VoxelIngestService;
 import me.cortex.voxy.commonImpl.VoxyCommon;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
@@ -29,6 +30,7 @@ public class MixinRenderGlobalIngest {
     @Inject(method = "notifyBlockUpdate", at = @At("TAIL"))
     private void voxy$injectIngestOnStateChange(World worldIn, BlockPos pos, IBlockState oldState, IBlockState newState, int flags, CallbackInfo ci) {
         if (oldState == newState) return;
+        if (!Minecraft.getMinecraft().isCallingFromMinecraftThread()) return;
 
         //TODO: is this _really_ needed, we should have enough processing power to not need todo it if
         // its only a block removal

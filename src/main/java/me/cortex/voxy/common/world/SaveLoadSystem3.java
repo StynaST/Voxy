@@ -10,9 +10,11 @@ import org.lwjgl.system.MemoryUtil;
 public class SaveLoadSystem3 {
     public static final int STORAGE_VERSION = 0;
 
-    private record SerializationCache(Long2ShortOpenHashMap lutMapCache, MemoryBuffer memoryBuffer) {
+    private record SerializationCache(Long2ShortOpenHashMap lutMapCache, MemoryBuffer memoryBuffer, long[] sectionData) {
         public SerializationCache() {
-            this(new Long2ShortOpenHashMap(1024), ThreadLocalMemoryBuffer.create(WorldSection.SECTION_VOLUME*2+WorldSection.SECTION_VOLUME*8+1024));
+            this(new Long2ShortOpenHashMap(1024),
+                    ThreadLocalMemoryBuffer.create(WorldSection.SECTION_VOLUME*2+WorldSection.SECTION_VOLUME*8+1024),
+                    new long[WorldSection.SECTION_VOLUME]);
             this.lutMapCache.defaultReturnValue((short) -1);
         }
     }
@@ -37,7 +39,8 @@ public class SaveLoadSystem3 {
     //TODO: Cache like long2short and the short and other data to stop allocs
     public static MemoryBuffer serialize(WorldSection section) {
         var cache = CACHE.get();
-        var data = section.data;
+        var data = cache.sectionData;
+        section.copyDataTo(data);
 
         Long2ShortOpenHashMap LUT = cache.lutMapCache; LUT.clear();
 
