@@ -112,7 +112,14 @@ public class VoxyClientInstance extends VoxyInstance {
                 if (Minecraft.getMinecraft().isConnectedToRealms()) {
                     basePath = basePath.resolve("realms");
                 } else {
-                    basePath = basePath.resolve(info.serverIP.replace(":", "_"));
+                    //Host only: the port is not part of the world's identity, and a server that moves
+                    //port would otherwise orphan every LOD already stored for it
+                    String host = info.serverIP;
+                    int portSplit = host.lastIndexOf(':');
+                    if (portSplit != -1) {
+                        host = host.substring(0, portSplit);
+                    }
+                    basePath = basePath.resolve(host.replace(":", "_"));
                 }
             }
         }

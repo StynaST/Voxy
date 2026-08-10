@@ -31,8 +31,18 @@ public final class WorldEngine {
     private ISectionSaveCallback saveCallback;
     volatile boolean isLive = true;
 
+    /** Set by the client: given an engine, returns the live listener for it, or null. */
+    public static volatile java.util.function.Function<WorldEngine, ISectionChangeCallback> CALLBACK_RESOLVER;
+
     public void setDirtyCallback(ISectionChangeCallback callback) {
         this.dirtyCallback = callback;
+    }
+
+    //A second render system shutting down must not unhook the live one
+    public void clearDirtyCallback(ISectionChangeCallback expected) {
+        if (this.dirtyCallback == expected) {
+            this.dirtyCallback = null;
+        }
     }
 
     public void setSaveCallback(ISectionSaveCallback callback) {
@@ -121,8 +131,11 @@ public final class WorldEngine {
         if (section.tracker != this.sectionTracker) {
             throw new IllegalStateException("Section is not from here");
         }
-        if (this.dirtyCallback != null) {
-            this.dirtyCallback.accept(section, changeState, neighborMsk);
+        //Resolver is the sole authority when installed; the registered callback can be an orphan's
+        var resolver = CALLBACK_RESOLVER;
+        var callback = resolver != null ? resolver.apply(this) : this.dirtyCallback;
+        if (callback != null) {
+            callback.accept(section, changeState, neighborMsk);
         }
         if ((changeState&UPDATE_TYPE_DONT_SAVE)==0) {
             section.markDirty();

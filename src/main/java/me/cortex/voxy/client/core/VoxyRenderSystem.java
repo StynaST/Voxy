@@ -76,6 +76,7 @@ public class VoxyRenderSystem {
 
     private final AbstractRenderPipeline pipeline;
     private final RenderProperties properties;
+    private WorldEngine.ISectionChangeCallback dirtyCallback;
 
     private static AbstractSectionRenderer.Factory<?,? extends IGeometryData> getRenderBackendFactory() {
         //TODO: need todo a thing where selects optimal section render based on if supports the pipeline and geometry data type
@@ -86,6 +87,38 @@ public class VoxyRenderSystem {
     //buffer) alive. RenderGlobal tracks its own, but a second RenderGlobal has its own field and
     //neither can see the other's.
     private static final java.util.Set<VoxyRenderSystem> LIVE = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    static {
+        //Only the system Minecraft draws with is worth notifying; scanning LIVE fed half the
+        //events to the orphan
+        WorldEngine.CALLBACK_RESOLVER = engine -> {
+            var system = IVoxyRenderSystemHolder.getNullable();
+            if (system == null || system.worldIn != engine) {
+                return null;
+            }
+            return system.nodeManager::worldEvent;
+        };
+    }
+
+    //Kills every render system that is not the one on RenderGlobal; a null holder kills nothing
+    public static void shutdownOrphans() {
+        if (LIVE.size()<2) {
+            return;
+        }
+        var current = IVoxyRenderSystemHolder.getNullable();
+        if (current == null) {
+            return;
+        }
+        for (var system : new java.util.ArrayList<>(LIVE)) {
+            if (system == current) continue;
+            Logger.warn("Shutting down an orphaned render system (not the one on RenderGlobal)");
+            try {
+                system.shutdown();
+            } catch (Exception e) {
+                Logger.error("Failed shutting down orphaned render system", e);
+            }
+        }
+    }
 
     public static void shutdownAll() {
         for (var system : new java.util.ArrayList<>(LIVE)) {
@@ -145,7 +178,8 @@ public class VoxyRenderSystem {
                 this.nodeCleaner = new NodeCleaner(this.nodeManager);
                 this.traversal = new HierarchicalOcclusionTraverser(this.nodeManager, this.nodeCleaner, this.renderGen);
 
-                world.setDirtyCallback(this.nodeManager::worldEvent);
+                this.dirtyCallback = this.nodeManager::worldEvent;
+                world.setDirtyCallback(this.dirtyCallback);
 
                 Arrays.stream(world.getMapper().getBiomeEntries()).forEach(this.modelService::addBiome);
                 world.getMapper().setBiomeCallback(this.modelService::addBiome);
@@ -589,7 +623,7 @@ public class VoxyRenderSystem {
         Logger.info("Shutting down rendering");
         try {
             //Cleanup callbacks
-            this.worldIn.setDirtyCallback(null);
+            this.worldIn.clearDirtyCallback(this.dirtyCallback);
             this.worldIn.getMapper().setBiomeCallback(null);
             this.worldIn.getMapper().setStateCallback(null);
 

@@ -73,6 +73,10 @@ public class AsyncNodeManager {
 
     private final GeometryCache geometryCache = new GeometryCache(1L<<32);
 
+    //enqueueTask drops a request when one is already queued, so a single fire can be lost
+    private final java.util.concurrent.ConcurrentLinkedQueue<Long> sectionsToReload = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private RenderGenerationService renderServiceRef;
+
     private final AtomicInteger workCounter = new AtomicInteger();
 
     @SuppressWarnings("FieldMayBeFinal")
@@ -127,6 +131,7 @@ public class AsyncNodeManager {
             }
         }, renderService::enqueueTask, this::submitChildChange);
         renderService.setResultConsumer(this::submitGeometryResult);
+        this.renderServiceRef = renderService;
 
         this.manager = new NodeManager(maxNodeCount, this.geometryManager, this.router);
 
@@ -257,6 +262,8 @@ public class AsyncNodeManager {
             job.release();
         } while (true);
 
+
+        workDone += this.reloadQueuedSections();
 
         //Limit uploading as well as by geometry capacity being available
         // must have 50 mb of free geometry space to upload
@@ -669,6 +676,19 @@ public class AsyncNodeManager {
         this.addWork();
     }
 
+    //An absent node is dropped: it rebuilds from the world when next created
+    private int reloadQueuedSections() {
+        int workDone = 0;
+        Long pos;
+        while ((pos = this.sectionsToReload.poll()) != null) {
+            workDone++;
+            if (this.manager.isPositionActive(pos)) {
+                this.renderServiceRef.enqueueTask(pos);
+            }
+        }
+        return workDone;
+    }
+
     private void submitGeometryResult(BuiltSection geometry) {
         if (!this.running) {
             geometry.free();
@@ -799,6 +819,9 @@ public class AsyncNodeManager {
         this.geometryCache.clear(section.key);
 
         this.router.forwardEvent(section, flags);
+
+        this.sectionsToReload.add(section.key);
+        this.addWork();
 
         if (neighborMask != 0) {//trigger rebuilds for neighbors
             if ((neighborMask&0b000001)!=0) this.router.triggerRemesh(WorldEngine.getWorldSectionId(section.lvl, section.x, section.y-1, section.z));//-y

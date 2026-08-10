@@ -54,6 +54,12 @@ public class VoxelIngestService {
             var vs = SECTION_CACHE.get().setPosition(task.cx, task.cy, task.cz);
 
             if (task.empty && task.blockLight == null && task.skyLight == null) {//If the chunk section has lighting data, propagate it
+                //Only clear what is stored, else every air section above terrain gets created
+                var existing = task.world.acquireIfExists(0, task.cx >> 1, task.cy >> 1, task.cz >> 1);
+                if (existing == null) {
+                    return;
+                }
+                existing.release();
                 WorldUpdater.insertUpdate(task.world, vs.zero());
             } else {
                 VoxelizedSection csec = WorldConversionFactory.convert(
@@ -195,6 +201,21 @@ public class VoxelIngestService {
 
             engine.acquireRef();//This is not great but dont really have a better solution as all the others have there own problem
             this.ingestQueue.add(new IngestSection(chunkX, i, chunkZ, engine, blockStates, empty, bl, sl, biomes));
+            try {
+                this.service.execute();
+            } catch (Exception e) {
+                Logger.error("Executing had an error: assume shutting down, aborting",e);
+                engine.releaseRef();//we must manually release
+                break;
+            }
+        }
+
+        //1.12.2 nulls a section once it holds only air, where modern MC keeps the object, so
+        //upstream's "section == null" skip would leave removed terrain in storage forever
+        for (int i = 0; i < sections.length; i++) {
+            if (sections[i] != null) continue;
+            engine.acquireRef();
+            this.ingestQueue.add(new IngestSection(chunkX, i, chunkZ, engine, null, true, null, null, biomes));
             try {
                 this.service.execute();
             } catch (Exception e) {

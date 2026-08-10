@@ -183,6 +183,10 @@ public class NodeManager {
 
     //==================================================================================================================
 
+    public boolean isPositionActive(long pos) {
+        return this.activeSectionMap.get(pos) != -1;
+    }
+
     public void processGeometryResult(BuiltSection sectionResult) {
         long pos = sectionResult.position;
         int nodeId = this.activeSectionMap.get(pos);

@@ -2,21 +2,20 @@ package me.cortex.voxy.client;
 
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
+import me.cortex.voxy.client.core.VoxyRenderSystem;
+import me.cortex.voxy.client.ingest.ChunkUpdateQueue;
 import me.cortex.voxy.commonImpl.VoxyCommon;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.common.network.FMLNetworkEvent;
 
 public class ClientSessionEvents {
     public static boolean inSession = false;
 
-    /**
-     * Port note: upstream hooks fabric's {@code ClientPlayConnectionEvents} JOIN/DISCONNECT. The
-     * Forge equivalents are the FML network events, which fire for singleplayer too since the
-     * integrated server runs over a local connection. World load/unload events would be wrong here:
-     * those also fire on every dimension change, but a session spans them.
-     */
+    //FML network events, not world load/unload: those also fire on every dimension change, but a
+    //session spans them
     public static void register() {
         MinecraftForge.EVENT_BUS.register(new ClientSessionEvents());
     }
@@ -27,8 +26,14 @@ public class ClientSessionEvents {
     }
 
     @SubscribeEvent
+    public void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) return;
+        VoxyRenderSystem.shutdownOrphans();
+        ChunkUpdateQueue.tick();
+    }
+
+    @SubscribeEvent
     public void onDisconnect(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
-        //A failed connection attempt disconnects without ever having connected
         if (inSession) {
             sessionEnd();
         }
@@ -38,7 +43,6 @@ public class ClientSessionEvents {
         if (inSession) throw new IllegalStateException("Cannot start new session while in a session");
         inSession = true;
 
-        //Should never try creating multiple instances via session start
         if (VoxyCommon.getInstance() != null) throw new IllegalStateException();
 
         if (VoxyCommon.isAvailable()) {
@@ -61,12 +65,12 @@ public class ClientSessionEvents {
     }
 
     private static void shutdownClientSession() {
+        ChunkUpdateQueue.clear();
         var holder = IVoxyRenderSystemHolder.getNullableHolder();
         if (holder != null) {
             holder.voxy$shutdownRenderer();
         }
-        //Catches render systems the holder no longer points at; each one holds a world reference and
-        //instance shutdown waits on those
+        //An orphan holds a world reference that instance shutdown would wait on
         me.cortex.voxy.client.core.VoxyRenderSystem.shutdownAll();
         VoxyCommon.shutdownInstance();
     }

@@ -3,6 +3,7 @@ package me.cortex.voxy.client.mixin.sodium;
 import me.cortex.voxy.client.ICheekyClientChunkCache;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
+import me.cortex.voxy.client.ingest.ChunkUpdateQueue;
 import me.cortex.voxy.common.world.service.VoxelIngestService;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.math.ChunkPos;
@@ -20,17 +21,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/**
- * Feeds Voxy's ingest service from Celeritas' chunk lifecycle: a chunk entering the render graph, a
- * chunk leaving it, and a section finishing a build.
- *
- * <p>Port note: upstream mixes Sodium's {@code RenderSectionManager}, which holds a {@code level}
- * field. Celeritas' base manager is generic over the world type and keeps it on the 1.12.2 subclass,
- * so the world comes from {@code Minecraft.world} instead — on a 1.12.2 client there is exactly one.
- *
- * <p>Upstream skips ingest-on-removal when Bobby is installed, since Bobby keeps the chunk around.
- * Bobby has no 1.12.2 build, so that path is always taken here.
- */
+//Celeritas keeps the level on the 1.12.2 subclass, so the world comes from Minecraft.world instead
 @Mixin(value = RenderSectionManager.class, remap = false)
 public class MixinRenderSectionManager {
 
@@ -52,8 +43,7 @@ public class MixinRenderSectionManager {
         if (!Minecraft.getMinecraft().isCallingFromMinecraftThread()) return;
         var world = Minecraft.getMinecraft().world;
         if (world == null) return;
-        //Get the chunk at all costs: by the time the render graph drops it, the normal lookup may
-        // already consider it out of range
+        //By the time the render graph drops it, the normal lookup considers it out of range
         var chunk = ((ICheekyClientChunkCache) world.getChunkProvider()).voxy$cheekyGetChunk(x, z);
         if (chunk != null) {
             VoxelIngestService.tryAutoIngestChunk(chunk);
@@ -65,8 +55,7 @@ public class MixinRenderSectionManager {
     private boolean voxy$updateOnUpload(RenderSection instance, @Nullable BuiltRenderSectionData info) {
         boolean changed = instance.setInfo(info);
 
-        //Upstream keys off Sodium's isInvisible() flipping. Celeritas has no such flag; a section
-        // that changed and now carries data is the same event.
+        //Celeritas has no isInvisible() flag; changed-and-now-carries-data is the same event
         if (!changed || info == null || !VoxyConfig.CONFIG.ingestEnabled ||
                 !Minecraft.getMinecraft().isCallingFromMinecraftThread()) {
             return changed;
@@ -86,9 +75,8 @@ public class MixinRenderSectionManager {
         if (tracker == null) {
             return changed;
         }
-        //Read the status every time. Caching it per chunk position never re-reads while the same
-        //chunk keeps rebuilding, and on a server block data arrives before light, so a chunk first
-        //seen as FLAG_HAS_BLOCK_DATA stays cached as incomplete and never ingests again.
+        //Never cache this per chunk pos: block data arrives before light, so a chunk first seen as
+        //FLAG_HAS_BLOCK_DATA would stay cached as incomplete and never ingest
         var chunkStatus = ((AccessorChunkTracker) tracker).voxy$getChunkStatus();
         if (chunkStatus.get(ChunkPos.asLong(x, z)) != ChunkStatus.FLAG_ALL) {
             return changed;
@@ -104,11 +92,12 @@ public class MixinRenderSectionManager {
         }
         var section = sections[y];
         if (section == null) {
+            //rawIngest cannot express a clear, so let the chunk path zero it
+            ChunkUpdateQueue.enqueue(x, z);
             return changed;
         }
 
-        //Port note: 1.12.2 light lives in the section itself, not in a light engine keyed by
-        // SectionPos, and NibbleArray has no copy()
+        //1.12.2 light lives in the section itself, and NibbleArray has no copy()
         VoxelIngestService.rawIngest(vrs.getEngine(), section, x, y, z,
                 voxy$copyNibble(section.getBlockLight()),
                 voxy$copyNibble(section.getSkyLight()),

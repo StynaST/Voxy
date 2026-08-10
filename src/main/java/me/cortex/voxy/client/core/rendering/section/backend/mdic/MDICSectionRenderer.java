@@ -208,6 +208,8 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         }
 
         glEnable(GL_CULL_FACE);
+        glProvokingVertex(GL_LAST_VERTEX_CONVENTION);
+        glUseProgram(0);
         glBindVertexArray(0);
         glBindSampler(0, 0);
         glBindTextureUnit(0, 0);
@@ -246,6 +248,8 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         glMultiDrawElementsIndirectCountARB(GL_TRIANGLES, GL_UNSIGNED_SHORT, TRANSLUCENT_OFFSET*5*4, 4*4, Math.min(this.geometryManager.getSectionCount(), TRANSLUCENT_DRAW_COUNT), 0);
 
         glEnable(GL_CULL_FACE);
+        glProvokingVertex(GL_LAST_VERTEX_CONVENTION);
+        glUseProgram(0);
         glBindVertexArray(0);
         glBindSampler(0, 0);
         glBindTextureUnit(0, 0);
