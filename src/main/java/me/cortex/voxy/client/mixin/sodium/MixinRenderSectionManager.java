@@ -10,6 +10,7 @@ import net.minecraft.world.chunk.NibbleArray;
 import org.embeddedt.embeddium.impl.render.chunk.RenderSection;
 import org.embeddedt.embeddium.impl.render.chunk.RenderSectionManager;
 import org.embeddedt.embeddium.impl.render.chunk.data.BuiltRenderSectionData;
+import org.embeddedt.embeddium.impl.render.chunk.map.ChunkStatus;
 import org.embeddedt.embeddium.impl.render.chunk.map.ChunkTrackerHolder;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
@@ -59,9 +60,6 @@ public class MixinRenderSectionManager {
         }
     }
 
-    @Unique private long voxy$cachedChunkPos = -1;
-    @Unique private int voxy$cachedChunkStatus;
-
     @Redirect(method = "updateSectionInfo",
             at = @At(value = "INVOKE", target = "Lorg/embeddedt/embeddium/impl/render/chunk/RenderSection;setInfo(Lorg/embeddedt/embeddium/impl/render/chunk/data/BuiltRenderSectionData;)Z"))
     private boolean voxy$updateOnUpload(RenderSection instance, @Nullable BuiltRenderSectionData info) {
@@ -88,15 +86,11 @@ public class MixinRenderSectionManager {
         if (tracker == null) {
             return changed;
         }
+        //Read the status every time. Caching it per chunk position never re-reads while the same
+        //chunk keeps rebuilding, and on a server block data arrives before light, so a chunk first
+        //seen as FLAG_HAS_BLOCK_DATA stays cached as incomplete and never ingests again.
         var chunkStatus = ((AccessorChunkTracker) tracker).voxy$getChunkStatus();
-        //In theory the cached value could be wrong, but that is so unlikely, and at worst it either
-        // ingests a chunk twice or not at all, both of which are fine
-        long key = ChunkPos.asLong(x, z);
-        if (key != this.voxy$cachedChunkPos) {
-            this.voxy$cachedChunkPos = key;
-            this.voxy$cachedChunkStatus = chunkStatus.get(key);
-        }
-        if (this.voxy$cachedChunkStatus != 3) {//Only ingest while the chunk still has its neighbours
+        if (chunkStatus.get(ChunkPos.asLong(x, z)) != ChunkStatus.FLAG_ALL) {
             return changed;
         }
 

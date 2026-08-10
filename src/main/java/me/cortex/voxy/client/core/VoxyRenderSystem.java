@@ -82,6 +82,22 @@ public class VoxyRenderSystem {
         return MDICSectionRenderer.FACTORY;
     }
 
+    //Every live render system, so an orphan cannot keep a world reference (and a 2GB geometry
+    //buffer) alive. RenderGlobal tracks its own, but a second RenderGlobal has its own field and
+    //neither can see the other's.
+    private static final java.util.Set<VoxyRenderSystem> LIVE = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    public static void shutdownAll() {
+        for (var system : new java.util.ArrayList<>(LIVE)) {
+            Logger.warn("Shutting down an orphaned render system");
+            try {
+                system.shutdown();
+            } catch (Exception e) {
+                Logger.error("Failed shutting down orphaned render system", e);
+            }
+        }
+    }
+
     public VoxyRenderSystem(WorldEngine world, ServiceManager sm) {
         //Keep the world loaded, NOTE: this is done FIRST, to keep and ensure that even if the rest of loading takes more
         // than timeout, we keep the world acquired
@@ -181,6 +197,8 @@ public class VoxyRenderSystem {
         }
 
         voxy$resetTextureUnits();
+
+        LIVE.add(this);
     }
 
 
@@ -563,6 +581,9 @@ public class VoxyRenderSystem {
     }
 
     public void shutdown() {
+        if (!LIVE.remove(this)) {
+            return;//Already shut down
+        }
         Logger.info("Flushing download stream");
         DownloadStream.INSTANCE.flushWaitClear();
         Logger.info("Shutting down rendering");

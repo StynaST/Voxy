@@ -65,6 +65,9 @@ public class ClientSessionEvents {
         if (holder != null) {
             holder.voxy$shutdownRenderer();
         }
+        //Catches render systems the holder no longer points at; each one holds a world reference and
+        //instance shutdown waits on those
+        me.cortex.voxy.client.core.VoxyRenderSystem.shutdownAll();
         VoxyCommon.shutdownInstance();
     }
 }

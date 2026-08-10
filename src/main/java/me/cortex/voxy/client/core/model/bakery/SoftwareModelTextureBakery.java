@@ -9,10 +9,12 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BlockFluidRenderer;
 import net.minecraft.client.renderer.BufferBuilder;
+import net.minecraft.client.renderer.block.model.IBakedModel;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.renderer.vertex.VertexFormat;
 import net.minecraft.client.renderer.vertex.VertexFormatElement;
 import net.minecraft.init.Biomes;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
 import net.minecraft.util.EnumFacing;
@@ -103,17 +105,123 @@ public class SoftwareModelTextureBakery {
         if (state.getRenderType() == EnumBlockRenderType.INVISIBLE) {
             return;//Dont bake if invisible
         }
-        var model = Minecraft.getMinecraft().getBlockRendererDispatcher().getModelForState(state);
 
-        var layer = state.getBlock().getRenderLayer();
-        var consumer = this.consumerForLayer(layer);
+        //Vanilla resolves actual -> extended state before asking for quads; mod blocks built from
+        //unlisted properties return the placeholder model without it
+        var actual = actualState(state);
+        var extended = extendedState(actual);
+
+        IBakedModel model;
+        try {
+            var shapes = Minecraft.getMinecraft().getBlockRendererDispatcher().getBlockModelShapes();
+            var missing = shapes.getModelManager().getMissingModel();
+            model = shapes.getModelForState(actual);
+            if (model == missing && actual != state) {
+                //Some blocks only have variants for the stored state, not the resolved one
+                model = shapes.getModelForState(state);
+            }
+            if (model == missing) {
+                warnOnce(state, "resolved to the missing model", null);
+            }
+        } catch (Throwable t) {
+            warnOnce(state, "getModelForState", t);
+            return;
+        }
         boolean forceSolid = state.getBlock() instanceof BlockLeaves;
-        boolean needsDiscard = layerNeedsDiscard(layer);
 
-        for (EnumFacing direction : new EnumFacing[]{EnumFacing.DOWN, EnumFacing.UP, EnumFacing.NORTH, EnumFacing.SOUTH, EnumFacing.WEST, EnumFacing.EAST, null}) {
-            var quads = model.getQuads(state, direction, 42L);
-            for (var quad : quads) {
-                consumer.quad(quad, forceSolid, needsDiscard);
+        for (var layer : BlockRenderLayer.values()) {
+            if (!canRenderInLayer(actual, layer)) {
+                continue;
+            }
+            var consumer = this.consumerForLayer(layer);
+            boolean needsDiscard = layerNeedsDiscard(layer);
+
+            //Layer is global state during getQuads; multi-layer blocks return a different set per layer
+            var previousLayer = net.minecraftforge.client.MinecraftForgeClient.getRenderLayer();
+            net.minecraftforge.client.ForgeHooksClient.setRenderLayer(layer);
+            try {
+                for (EnumFacing direction : new EnumFacing[]{EnumFacing.DOWN, EnumFacing.UP, EnumFacing.NORTH, EnumFacing.SOUTH, EnumFacing.WEST, EnumFacing.EAST, null}) {
+                    for (var quad : model.getQuads(extended, direction, 42L)) {
+                        consumer.quad(quad, forceSolid, needsDiscard);
+                    }
+                }
+            } catch (Throwable t) {
+                warnOnce(state, "model", t);
+            } finally {
+                net.minecraftforge.client.ForgeHooksClient.setRenderLayer(previousLayer);
+            }
+        }
+    }
+
+    /** getRenderLayer is only the primary layer; blocks may declare more via canRenderInLayer. */
+    private static boolean canRenderInLayer(IBlockState state, BlockRenderLayer layer) {
+        try {
+            return state.getBlock().canRenderInLayer(state, layer);
+        } catch (Throwable t) {
+            warnOnce(state, "canRenderInLayer", t);
+            return layer == state.getBlock().getRenderLayer();
+        }
+    }
+
+    private IBlockState actualState(IBlockState state) {
+        var access = this.blockAccess.set(state, Biomes.PLAINS).setAirFace(-1).setTileEntity(bakeTileEntity(state));
+        try {
+            return state.getActualState(access, BlockPos.ORIGIN);
+        } catch (Throwable t) {
+            warnOnce(state, "getActualState", t);
+            return state;
+        } finally {
+            access.setTileEntity(null);
+        }
+    }
+
+    private IBlockState extendedState(IBlockState state) {
+        var access = this.blockAccess.set(state, Biomes.PLAINS).setAirFace(-1);
+        access.setTileEntity(bakeTileEntity(state));
+        try {
+            return state.getBlock().getExtendedState(state, access, BlockPos.ORIGIN);
+        } catch (Throwable t) {
+            warnOnce(state, "getExtendedState", t);
+            return state;
+        } finally {
+            access.setTileEntity(null);
+        }
+    }
+
+    /**
+     * TE-driven state resolves to the placeholder model without one. Mods reject a null world outright
+     * (teslacorelib) or read it back off the TE (EnderIO conduits), so the real client world is used --
+     * baking runs on the client thread, so that is safe. Best effort: a failure just means no TE.
+     */
+    private TileEntity bakeTileEntity(IBlockState state) {
+        if (!state.getBlock().hasTileEntity(state)) {
+            return null;
+        }
+        var world = Minecraft.getMinecraft().world;
+        if (world == null) {
+            return null;
+        }
+        try {
+            var te = state.getBlock().createTileEntity(world, state);
+            if (te != null) {
+                te.setWorld(world);
+                te.setPos(BlockPos.ORIGIN);
+            }
+            return te;
+        } catch (Throwable t) {
+            warnOnce(state, "createTileEntity", t);
+            return null;
+        }
+    }
+
+    private static final it.unimi.dsi.fastutil.objects.ObjectOpenHashSet<String> LOGGED_STATE_FAILURES = new it.unimi.dsi.fastutil.objects.ObjectOpenHashSet<>();
+
+    private static void warnOnce(IBlockState state, String what, Throwable t) {
+        if (LOGGED_STATE_FAILURES.add(state.getBlock() + "|" + what)) {
+            if (t == null) {
+                me.cortex.voxy.common.Logger.warn(state + " " + what);
+            } else {
+                me.cortex.voxy.common.Logger.warn(what + " for " + state.getBlock() + " failed against the bake world, falling back", t);
             }
         }
     }

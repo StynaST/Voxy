@@ -68,7 +68,12 @@ public abstract class MixinRenderGlobal implements IVoxyRenderSystemHolder {
 
     @Override
     public void voxy$createRenderer() {
-        if (this.voxy$renderer != null) throw new IllegalStateException("Cannot have multiple renderers");
+        if (this.voxy$renderer != null) {
+            //Never leak the old one: it holds a world reference, and an unreleased reference makes
+            //instance shutdown wait on a world that can never become unused
+            Logger.warn("Creating a renderer while one already exists, shutting the old one down first");
+            this.voxy$shutdownRenderer();
+        }
         if (!VoxyConfig.CONFIG.enabled) {
             Logger.info("Not creating renderer due to disabled");
             return;

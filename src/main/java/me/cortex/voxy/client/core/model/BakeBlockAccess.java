@@ -29,10 +29,25 @@ public class BakeBlockAccess implements IBlockAccess {
     /** Face being baked, or -1. Positions on the outward side of that face read as air. */
     private int airFace = -1;
     public boolean biomeAccessed;
+    private TileEntity tileEntity;
+    private boolean isolated;
 
     public BakeBlockAccess set(IBlockState state, Biome biome) {
         this.state = state;
         this.biome = biome;
+        return this;
+    }
+
+    /** Tile entity handed to getExtendedState, or null. Only the origin position carries one. */
+    public BakeBlockAccess setTileEntity(@Nullable TileEntity tileEntity) {
+        this.tileEntity = tileEntity;
+        return this;
+    }
+
+    /** Only the origin holds the state, neighbours read as air. Stops mod code that walks
+     * neighbours recursing forever (NTM's trapdoor isLadder). Fluid/tint paths want the uniform default. */
+    public BakeBlockAccess setIsolated(boolean isolated) {
+        this.isolated = isolated;
         return this;
     }
 
@@ -56,6 +71,13 @@ public class BakeBlockAccess implements IBlockAccess {
 
     @Override
     public IBlockState getBlockState(BlockPos pos) {
+        //Bounded on purpose: self-culling only ever asks about direct neighbours, while mod code that
+        //walks the world (NTM's trapdoor recursing down through isLadder) never terminates if every
+        //position holds the same block. Isolated mode tightens that to the origin alone.
+        int reach = this.isolated ? 0 : 1;
+        if (Math.abs(pos.getX()) > reach || Math.abs(pos.getY()) > reach || Math.abs(pos.getZ()) > reach) {
+            return Blocks.AIR.getDefaultState();
+        }
         return this.isAirAt(pos) ? Blocks.AIR.getDefaultState() : this.state;
     }
 
@@ -73,7 +95,7 @@ public class BakeBlockAccess implements IBlockAccess {
     @Nullable
     @Override
     public TileEntity getTileEntity(BlockPos pos) {
-        return null;
+        return pos.getX() == 0 && pos.getY() == 0 && pos.getZ() == 0 ? this.tileEntity : null;
     }
 
     @Override

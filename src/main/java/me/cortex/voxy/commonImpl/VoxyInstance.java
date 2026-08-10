@@ -253,15 +253,20 @@ public abstract class VoxyInstance {
                         printedNotice = true;
                         Logger.error("Not all worlds shutdown, force closing worlds");
                     }
-                    //Dont lock in the loopy thing, this should basicly never happen if it does something horrific happened
+                    //Bounded: this runs on the client thread, so a leaked reference must not be able
+                    //to hang the game forever. Give outstanding work a moment, then free regardless.
                     this.activeWorldLock.unlockWrite(stamp);
-                    while (world.isWorldUsed()) {
+                    long deadline = System.nanoTime() + 3_000_000_000L;
+                    while (world.isWorldUsed() && System.nanoTime() < deadline) {
                         try {
                             //noinspection BusyWait
                             Thread.sleep(10);
                         } catch (InterruptedException e) {
                             throw new RuntimeException(e);
                         }
+                    }
+                    if (world.isWorldUsed()) {
+                        Logger.error("World still referenced after waiting, freeing anyway (leaked reference)");
                     }
                     stamp = this.activeWorldLock.writeLock();
                 }

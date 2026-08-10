@@ -27,8 +27,9 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  * <ul>
  *   <li><b>Lighting.</b> Upstream has to interrogate a separate light engine and ask whether each
  *       section is in the LIGHT_AND_DATA state before it can read light data. 1.12.2 stores light
- *       inside the chunk section itself, as two NibbleArrays, so "do we have lighting" is just a
- *       null check plus {@link Chunk#isLightPopulated()}.</li>
+ *       inside the chunk section itself, as two NibbleArrays, so "do we have lighting" is a null
+ *       check on those. Not {@code Chunk#isLightPopulated()} -- that is world-gen state the client
+ *       never sets, so gating on it stops multiplayer ingesting anything.</li>
  *   <li><b>Biomes.</b> They live on the chunk as a flat {@code byte[256]}, not on the section, so
  *       the biome array has to be captured into the queued job alongside the section.</li>
  *   <li><b>Section range.</b> 1.12.2 worlds are always 0..255, so the section index is simply the
@@ -143,18 +144,17 @@ public class VoxelIngestService {
         int chunkX = chunk.getPos().x;
         int chunkZ = chunk.getPos().z;
 
-        // Upstream asks the light engine whether each section holds real light data. Here, a section
-        // carries its own light arrays, so having lighting means the chunk has been lit and at least
-        // one section exposes an array.
+        // Upstream asks the light engine whether each section holds real light data; here a section
+        // carries its own light arrays, so the arrays themselves are the check.
+        // Do NOT gate this on Chunk#isLightPopulated: that flag is world-gen state and nothing on the
+        // client ever sets it, so on a server every chunk reports false and never ingests at all.
         boolean gotLighting = false;
         boolean allEmpty = true;
-        if (chunk.isLightPopulated()) {
-            for (int i = 0; i < sections.length; i++) {
-                var section = sections[i];
-                if (section == null || !shouldIngestSection(section, chunkX, i, chunkZ)) continue;
-                if (section.getBlockLight() != null || section.getSkyLight() != null) {
-                    gotLighting = true;
-                }
+        for (int i = 0; i < sections.length; i++) {
+            var section = sections[i];
+            if (section == null || !shouldIngestSection(section, chunkX, i, chunkZ)) continue;
+            if (section.getBlockLight() != null || section.getSkyLight() != null) {
+                gotLighting = true;
             }
         }
         for (int i = 0; i < sections.length; i++) {

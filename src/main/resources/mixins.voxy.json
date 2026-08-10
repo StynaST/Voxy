@@ -15,6 +15,7 @@
         "minecraft.MixinEntityRendererFog",
         "minecraft.MixinFramebufferDepthTexture",
         "minecraft.MixinMinecraftStartup",
+        "minecraft.MixinNetHandlerPlayClientIngest",
         "minecraft.MixinRenderGlobal",
         "minecraft.MixinRenderGlobalIngest",
         "minecraft.MixinUtilRunTask",
