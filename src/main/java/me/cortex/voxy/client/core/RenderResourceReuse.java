@@ -102,8 +102,9 @@ public class RenderResourceReuse {
         if (Capabilities.INSTANCE.isIntel) {
             geometryCapacity = Math.max(geometryCapacity, 1L<<30);//intel moment, force min 1gb
         }
-        if (Capabilities.INSTANCE.isNvidia && ThreadUtils.isLinux) {
-            geometryCapacity = Math.min(geometryCapacity, 2000L*1024L*1024L);//nvidia linux moment, force max 2gb heap
+        if (Capabilities.INSTANCE.isNvidia) {
+            //Above GL_MAX_SHADER_STORAGE_BLOCK_SIZE the tail of the buffer is not addressable as an ssbo
+            geometryCapacity = Math.min(geometryCapacity, 2000L*1024L*1024L);//nvidia moment, force max 2gb heap
         }
 
         geometryCapacity = Math.max(512*1024*1024, geometryCapacity);//min of 512 mb

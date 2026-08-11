@@ -662,6 +662,17 @@ public class AsyncNodeManager {
         }
     }
 
+    //Non throwing addWork, for off thread callers that race with shutdown
+    private boolean tryAddWork() {
+        if (!this.running) {
+            return false;
+        }
+        if (this.workCounter.getAndIncrement() == 0) {
+            LockSupport.unpark(this.thread);
+        }
+        return true;
+    }
+
     public void submitRequestBatch(MemoryBuffer batch) {//Only called from render thread
         this.requestBatchQueue.add(batch);
         this.addWork();
@@ -673,7 +684,7 @@ public class AsyncNodeManager {
         }
         section.acquire();//We must acquire the section before putting in the queue
         this.childUpdateQueue.add(section);
-        this.addWork();
+        this.tryAddWork();
     }
 
     //An absent node is dropped: it rebuilds from the world when next created
@@ -695,7 +706,7 @@ public class AsyncNodeManager {
             return;
         }
         this.geometryUpdateQueue.add(geometry);
-        this.addWork();
+        this.tryAddWork();
     }
 
     public void submitRemoveBatch(MemoryBuffer batch) {//Only called from render thread
@@ -815,13 +826,19 @@ public class AsyncNodeManager {
     }
 
     public void worldEvent(WorldSection section, int flags, int neighborMask) {
+        if (!this.running) {
+            return;
+        }
+
         //If there is any change, we need to clear the geometry cache before emitting update
         this.geometryCache.clear(section.key);
 
         this.router.forwardEvent(section, flags);
 
         this.sectionsToReload.add(section.key);
-        this.addWork();
+        if (!this.tryAddWork()) {
+            return;
+        }
 
         if (neighborMask != 0) {//trigger rebuilds for neighbors
             if ((neighborMask&0b000001)!=0) this.router.triggerRemesh(WorldEngine.getWorldSectionId(section.lvl, section.x, section.y-1, section.z));//-y

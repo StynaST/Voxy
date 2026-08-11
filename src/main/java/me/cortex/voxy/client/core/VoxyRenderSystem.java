@@ -354,15 +354,25 @@ public class VoxyRenderSystem {
             oldBufferBindings[i] = glGetIntegeri(GL_SHADER_STORAGE_BUFFER_BINDING, i);
         }
 
-        GlStateManager.enableDepth();
-        GlStateManager.depthFunc(this.properties.closerEqualDepthCompare());
-        GlStateManager.depthMask(true);
-        GlStateManager.disablePolygonOffset();
-
         int oldFB = GL11.glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING);
 
         int[] dims = new int[4];
         glGetIntegerv(GL_VIEWPORT, dims);
+
+        //Restore must be unconditional: a throw here leaves vanilla drawing with Voxy's state
+        try {
+            this.renderOpaque0(viewport, sourceDepthTexture, sourceColourTexture);
+        } finally {
+            voxy$restoreVanillaState(oldFB, dims, oldBufferBindings);
+            TimingStatistics.all.stop();
+        }
+    }
+
+    private void renderOpaque0(Viewport<?> viewport, int sourceDepthTexture, int sourceColourTexture) {
+        GlStateManager.enableDepth();
+        GlStateManager.depthFunc(this.properties.closerEqualDepthCompare());
+        GlStateManager.depthMask(true);
+        GlStateManager.disablePolygonOffset();
 
         //this.autoBalanceSubDivSize();
 
@@ -425,45 +435,6 @@ public class VoxyRenderSystem {
 
         GPUTiming.INSTANCE.tick();
 
-        glBindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER, oldFB);
-        glViewport(dims[0], dims[1], dims[2], dims[3]);
-
-        {//Reset state manager stuffs
-            OpenGlHelper.glUseProgram(0);
-            glUseProgram(0);
-            GlStateManager.enableDepth();
-            glEnable(GL_DEPTH_TEST);
-            glDisable(GL_STENCIL_TEST);
-
-            org.lwjgl.opengl.GL30.glBindVertexArray(0);//Clear binding
-            glBindVertexArray(0);
-
-            voxy$resetTextureUnits();
-            voxy$rebindVanillaTextures();
-
-            IrisUtil.clearIrisSamplers();//Thanks iris (sigh)
-
-            //TODO: should/needto actually restore all of these, not just clear them
-            //Clear all the bindings
-            for (int i = 0; i < oldBufferBindings.length; i++) {
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i, oldBufferBindings[i]);
-            }
-            //1.12.2's GlStateManager tracks no blend equation, so only the raw call resets that one
-            glBlendEquation(GL_FUNC_ADD);
-            GlStateManager.tryBlendFuncSeparate(0,0, 0, 0);
-            glBlendFunc(0, 0);
-            GlStateManager.disableBlend();
-            glDisable(GL_BLEND);
-            //GL_LEQUAL, not upstream's GL_LESS: that is modern MC's default, 1.12.2 draws terrain
-            //and the GUI with LEQUAL and never sets it back per frame.
-            GlStateManager.depthFunc(GL_LEQUAL);
-            glDepthFunc(GL_LEQUAL);
-
-            //((SodiumShader) Iris.getPipelineManager().getPipelineNullable().getSodiumPrograms().getProgram(DefaultTerrainRenderPasses.CUTOUT).getInterface()).setupState(DefaultTerrainRenderPasses.CUTOUT, fogParameters);
-        }
-
-        TimingStatistics.all.stop();
-
         //TimingStatistics.I.start();
         //glFlush();
         //TimingStatistics.I.stop();
@@ -493,6 +464,52 @@ public class VoxyRenderSystem {
          */
     }
 
+
+
+    //Reset state manager stuffs
+    private static void voxy$restoreVanillaState(int oldFB, int[] dims, int[] oldBufferBindings) {
+        glBindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER, oldFB);
+        glViewport(dims[0], dims[1], dims[2], dims[3]);
+
+        OpenGlHelper.glUseProgram(0);
+        glUseProgram(0);
+        GlStateManager.enableDepth();
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_STENCIL_TEST);
+
+        org.lwjgl.opengl.GL30.glBindVertexArray(0);//Clear binding
+        glBindVertexArray(0);
+
+        voxy$resetTextureUnits();
+        voxy$rebindVanillaTextures();
+
+        IrisUtil.clearIrisSamplers();//Thanks iris (sigh)
+
+        //TODO: should/needto actually restore all of these, not just clear them
+        //Clear all the bindings
+        for (int i = 0; i < oldBufferBindings.length; i++) {
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i, oldBufferBindings[i]);
+        }
+        //1.12.2's GlStateManager tracks no blend equation, so only the raw call resets that one
+        glBlendEquation(GL_FUNC_ADD);
+        GlStateManager.tryBlendFuncSeparate(0,0, 0, 0);
+        glBlendFunc(0, 0);
+        GlStateManager.disableBlend();
+        glDisable(GL_BLEND);
+        //GL_LEQUAL, not upstream's GL_LESS: that is modern MC's default, 1.12.2 draws terrain
+        //and the GUI with LEQUAL and never sets it back per frame.
+        GlStateManager.depthFunc(GL_LEQUAL);
+        glDepthFunc(GL_LEQUAL);
+
+        //Voxy drives these raw, so GlStateManager's cache still holds whatever vanilla last set. A
+        //stale cache makes vanilla skip the call that would put it back, so force cache and GL to agree.
+        GlStateManager.enableCull();
+        glEnable(GL_CULL_FACE);
+        GlStateManager.depthMask(true);
+        glDepthMask(true);
+        GlStateManager.colorMask(true, true, true, true);
+        glColorMask(true, true, true, true);
+    }
 
 
     private void autoBalanceSubDivSize() {

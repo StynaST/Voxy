@@ -2,6 +2,7 @@ package me.cortex.voxy.client.mixin.minecraft;
 
 import me.cortex.voxy.client.core.IVoxyDepthTextureHolder;
 import me.cortex.voxy.common.Logger;
+import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.shader.Framebuffer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -59,7 +60,8 @@ public abstract class MixinFramebufferDepthTexture implements IVoxyDepthTextureH
         if (this.voxy$depthTexture == -1) {
             this.voxy$depthTexture = glGenTextures();
         }
-        glBindTexture(GL_TEXTURE_2D, this.voxy$depthTexture);
+        //Not raw glBindTexture: GlStateManager caches per unit and would skip vanilla's next bind
+        GlStateManager.bindTexture(this.voxy$depthTexture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -73,7 +75,7 @@ public abstract class MixinFramebufferDepthTexture implements IVoxyDepthTextureH
         } else {
             glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, self.framebufferTextureWidth, self.framebufferTextureHeight, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, (java.nio.ByteBuffer) null);
         }
-        glBindTexture(GL_TEXTURE_2D, 0);
+        GlStateManager.bindTexture(0);
 
         int previous = glGetInteger(GL_FRAMEBUFFER_BINDING);
         glBindFramebuffer(GL_FRAMEBUFFER, self.framebufferObject);

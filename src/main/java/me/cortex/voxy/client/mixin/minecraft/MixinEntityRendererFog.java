@@ -41,14 +41,27 @@ public class MixinEntityRendererFog {
         //effect itself rather than a draw-distance limit
         boolean fogIsDamnClose = fog.end < 10;
         if (!VoxyConfig.CONFIG.useEnvironmentalFog && !fogIsDamnClose) {
-            GlStateManager.setFogStart(99999999f);
-            GlStateManager.setFogEnd(99999999f);
+            voxy$disableLinearFog();
             return;
         }
         if (!fogIsDamnClose) {
             //Vanilla's fog here is the render distance cutoff, which Voxy renders past
-            GlStateManager.setFogStart(999999999f);
-            GlStateManager.setFogEnd(999999999f);
+            voxy$disableLinearFog();
         }
+    }
+
+    /**
+     * Pushes linear fog far enough away that nothing in the scene is fogged.
+     *
+     * <p>Start and end must differ. GL_LINEAR computes {@code f = (end - z) / (end - start)}, so an
+     * equal start and end divides by zero, and whether the resulting NaN clamps to 1 (no fog) or 0
+     * (fully fogged) is up to the driver. Clamping to 0 paints every fixed-function fragment in the
+     * flat fog colour, which is why entities and block entities turned solid pale blue on some GPUs
+     * while Celeritas terrain, which fogs in its own shader, looked fine.
+     */
+    @org.spongepowered.asm.mixin.Unique
+    private static void voxy$disableLinearFog() {
+        GlStateManager.setFogStart(1.0e8f);
+        GlStateManager.setFogEnd(2.0e8f);
     }
 }
