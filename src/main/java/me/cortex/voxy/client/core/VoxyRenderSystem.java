@@ -46,7 +46,6 @@ import java.lang.ref.Cleaner;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.lwjgl.opengl.ARBDirectStateAccess.glGetTextureLevelParameteri;
 import static org.lwjgl.opengl.GL11.glGetIntegerv;
 import static org.lwjgl.opengl.GL11C.*;
 import static org.lwjgl.opengl.GL30C.*;
@@ -289,7 +288,8 @@ public class VoxyRenderSystem {
         }
 
         //cameraY += 100;
-        var voxyProjection = computeProjectionMat(this.properties, vanillaProjection);
+        //Written into a scratch the viewport copies out of, rather than a fresh matrix a frame
+        var voxyProjection = computeProjectionMat(this.properties, vanillaProjection, this.projectionScratch);
 
         /*
         int[] dims = new int[4];
@@ -314,7 +314,7 @@ public class VoxyRenderSystem {
         viewport
                 .setVanillaProjection(vanillaProjection)
                 .setProjection(voxyProjection)
-                .setModelView(new Matrix4f(modelView))
+                .setModelView(modelView)
                 .setCamera(cameraX, cameraY, cameraZ)
                 .setScreenSize(width, height)
                 .setFogParameters(fogParameters)
@@ -328,7 +328,11 @@ public class VoxyRenderSystem {
     }
 
 
-    public void renderOpaque(Viewport<?> viewport, int sourceDepthTexture, int sourceColourTexture) {
+    /**
+     * @param srcWidth  width of {@code sourceDepthTexture}, i.e. the game framebuffer width
+     * @param srcHeight height of {@code sourceDepthTexture}
+     */
+    public void renderOpaque(Viewport<?> viewport, int sourceDepthTexture, int sourceColourTexture, int srcWidth, int srcHeight) {
         if (viewport == null) {
             return;
         }
@@ -361,14 +365,14 @@ public class VoxyRenderSystem {
 
         //Restore must be unconditional: a throw here leaves vanilla drawing with Voxy's state
         try {
-            this.renderOpaque0(viewport, sourceDepthTexture, sourceColourTexture);
+            this.renderOpaque0(viewport, sourceDepthTexture, sourceColourTexture, srcWidth, srcHeight);
         } finally {
             voxy$restoreVanillaState(oldFB, dims, oldBufferBindings);
             TimingStatistics.all.stop();
         }
     }
 
-    private void renderOpaque0(Viewport<?> viewport, int sourceDepthTexture, int sourceColourTexture) {
+    private void renderOpaque0(Viewport<?> viewport, int sourceDepthTexture, int sourceColourTexture, int scrWidth, int scrHeight) {
         GlStateManager.enableDepth();
         GlStateManager.depthFunc(this.properties.closerEqualDepthCompare());
         GlStateManager.depthMask(true);
@@ -379,9 +383,9 @@ public class VoxyRenderSystem {
 
         glViewport(0, 0, viewport.width, viewport.height);
 
-        int scrWidth  = glGetTextureLevelParameteri(sourceDepthTexture, 0, GL_TEXTURE_WIDTH);
-        int scrHeight = glGetTextureLevelParameteri(sourceDepthTexture, 0, GL_TEXTURE_HEIGHT);
-
+        //The source dimensions come from the caller's framebuffer rather than a
+        //glGetTextureLevelParameteri pair on the depth texture: the caller already knows them, and
+        //texture-level queries are driver round trips run on every single frame.
         this.pipeline.preSetup(viewport);
 
         TimingStatistics.E.start();
@@ -567,7 +571,7 @@ public class VoxyRenderSystem {
         ).mulLocal(makeProjectionMatrix(nearVoxy, 16*3000));
     }*/
 
-    private static Matrix4f computeProjectionMat(RenderProperties properties, Matrix4fc base) {
+    private static Matrix4f computeProjectionMat(RenderProperties properties, Matrix4fc base, Matrix4f dest) {
         //`base` is the projection the vanilla chunks were rasterised with, so only the depth range is
         //replaced. Upstream composes (glProjection^-1 * base) to catch projection-space extras; there
         //are none on 1.12.2 (bobbing/hurt tilt go to the modelview), and that delta breaks whenever a
@@ -585,10 +589,12 @@ public class VoxyRenderSystem {
             far = tmp;
         }
 
-        return new Matrix4f(base)
+        return dest.set(base)
                 .m22((properties.isZero2One()?far:(far+near)) / (near - far))
                 .m32((properties.isZero2One()?far:(far+far)) * near / (near - far));
     }
+
+    private final Matrix4f projectionScratch = new Matrix4f();
 
     private boolean frexStillHasWork() {
         if (!VoxyClient.isFrexActive()) {

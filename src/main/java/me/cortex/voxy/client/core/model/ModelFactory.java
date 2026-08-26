@@ -337,6 +337,9 @@ public class ModelFactory {
         }
 
         public void upload(ModelStore store) {//Uploads and resets for reuse
+            //Back this model's atlas rows before writing them; on a sparse atlas the write would
+            //otherwise be silently dropped
+            store.ensureModelIdFits(this.modelId);
             this.upload(store.modelBuffer, store.modelColourBuffer, store.textures);
         }
 

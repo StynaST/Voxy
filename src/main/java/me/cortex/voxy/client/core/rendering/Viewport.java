@@ -29,7 +29,7 @@ public abstract class Viewport <A extends Viewport<A>> {
     public int height;
     public int frameId;
     public Matrix4f vanillaProjection = new Matrix4f();
-    public Matrix4f projection = new Matrix4f();
+    public final Matrix4f projection = new Matrix4f();
     public Matrix4f modelView = new Matrix4f();
     public final FrustumIntersection frustum = new FrustumIntersection();
     public final Vector4f[] frustumPlanes;
@@ -57,6 +57,12 @@ public abstract class Viewport <A extends Viewport<A>> {
         this.hiZBuffer = new HiZBuffer(properties);
     }
 
+    //Every setter returns the concrete viewport type; the cast is safe by the A extends Viewport<A> bound
+    @SuppressWarnings("unchecked")
+    private A self() {
+        return (A) this;
+    }
+
     public final void delete() {
         this.delete0();
     }
@@ -68,35 +74,36 @@ public abstract class Viewport <A extends Viewport<A>> {
 
     public A setVanillaProjection(Matrix4fc projection) {
         this.vanillaProjection.set(projection);
-        return (A) this;
+        return this.self();
     }
 
-    public A setProjection(Matrix4f projection) {
-        this.projection = projection;
-        return (A) this;
+    //Copies rather than takes the reference, so callers can hand in a reused scratch matrix
+    public A setProjection(Matrix4fc projection) {
+        this.projection.set(projection);
+        return this.self();
     }
 
     public A setModelView(Matrix4fc modelView) {
         this.modelView.set(modelView);
-        return (A) this;
+        return this.self();
     }
 
     public A setCamera(double x, double y, double z) {
         this.cameraX = x;
         this.cameraY = y;
         this.cameraZ = z;
-        return (A) this;
+        return this.self();
     }
 
     public A setScreenSize(int width, int height) {
         this.width = width;
         this.height = height;
-        return (A) this;
+        return this.self();
     }
 
     public A setFogParameters(FogParameters fogParameters) {
         this.fogParameters = fogParameters;
-        return (A) this;
+        return this.self();
     }
 
     public A update() {
@@ -121,7 +128,7 @@ public abstract class Viewport <A extends Viewport<A>> {
             this.depthBoundingBuffer.clear(this.properties.inverseClearDepth());
         }
 
-        return (A) this;
+        return this.self();
     }
 
     public abstract GlBuffer getRenderList();

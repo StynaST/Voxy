@@ -17,7 +17,7 @@ import static org.lwjgl.opengl.GL33.glGetQueryObjecti64;
 public class GPUTiming {
     public static GPUTiming INSTANCE = new GPUTiming();
 
-    private final GlTimestampQuerySet<String> timingSet = new GlTimestampQuerySet(String.class);
+    private final GlTimestampQuerySet<String> timingSet = new GlTimestampQuerySet<>(String.class);
 
     private float[] timings = new float[0];
     private String[] lables = new String[0];
@@ -106,13 +106,14 @@ public class GPUTiming {
             }
         }
         private final IntArrayFIFOQueue POOL = new IntArrayFIFOQueue();
-        private final ObjectArrayFIFOQueue<InflightRequest<T>> INFLIGHT = new ObjectArrayFIFOQueue();
+        private final ObjectArrayFIFOQueue<InflightRequest<T>> INFLIGHT = new ObjectArrayFIFOQueue<>();
 
         private final int[] queries = new int[64];
         private final T[] metadata;
         private int index;
 
 
+        @SuppressWarnings("unchecked")//Array.newInstance(metaClass) is a T[] by construction
         private GlTimestampQuerySet(Class<T> metaClass) {
             this.metadata = (T[]) Array.newInstance(metaClass, 64);
         }
@@ -135,7 +136,7 @@ public class GPUTiming {
                 var metadata = Arrays.copyOf(this.metadata, this.index);
                 Arrays.fill(this.metadata, null);
                 this.index = 0;
-                this.INFLIGHT.enqueue(new InflightRequest(queries, metadata, consumer));
+                this.INFLIGHT.enqueue(new InflightRequest<>(queries, metadata, consumer));
             }
         }
 

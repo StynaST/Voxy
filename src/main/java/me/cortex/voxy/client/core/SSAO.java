@@ -17,6 +17,7 @@ import static org.lwjgl.opengl.GL11C.*;
 import static org.lwjgl.opengl.GL12C.GL_CLAMP_TO_EDGE;
 import static org.lwjgl.opengl.GL14C.GL_TEXTURE_COMPARE_MODE;
 import static org.lwjgl.opengl.GL15C.GL_READ_WRITE;
+import static org.lwjgl.opengl.GL20C.glUniform2i;
 import static org.lwjgl.opengl.GL20C.nglUniformMatrix4fv;
 import static org.lwjgl.opengl.GL33C.*;
 import static org.lwjgl.opengl.GL45C.glBindTextureUnit;
@@ -63,6 +64,7 @@ public class SSAO {
     private final int spp;
 
     private final int depthSampler;
+    private final Matrix4f matrixScratch = new Matrix4f();
     public SSAO(RenderProperties properties) {
         this(properties, false, 0);
     }
@@ -126,7 +128,7 @@ public class SSAO {
         //The matrices
         try (var stack = MemoryStack.stackPush()) {
             long ptr = stack.nmalloc(4*4*4);
-            var scratch = new Matrix4f();
+            var scratch = this.matrixScratch;
             if (this.isBetterSSAO) {
                 JomlConv.put(viewport.projection, ptr);
                 nglUniformMatrix4fv(4, 1, false, ptr);//Proj
@@ -143,6 +145,8 @@ public class SSAO {
                 nglUniformMatrix4fv(4, 1, false, ptr);//invMVP
             }
         }
+
+        glUniform2i(8, viewport.width, viewport.height);
 
         glBindImageTexture(0, colourOut.id, 0, false,0, GL_READ_WRITE, GL_RGBA8);
         glBindTextureUnit(1, colourIn.id);

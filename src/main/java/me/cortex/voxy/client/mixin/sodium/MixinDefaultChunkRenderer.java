@@ -70,6 +70,7 @@ public abstract class MixinDefaultChunkRenderer {
                 framebuffer.framebufferTextureHeight,
                 camera.x, camera.y, camera.z);
 
-        renderer.renderOpaque(viewport, depthTexture, framebuffer.framebufferTexture);
+        renderer.renderOpaque(viewport, depthTexture, framebuffer.framebufferTexture,
+                framebuffer.framebufferTextureWidth, framebuffer.framebufferTextureHeight);
     }
 }

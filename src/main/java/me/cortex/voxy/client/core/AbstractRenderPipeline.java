@@ -106,6 +106,9 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
         glDisable(GL_STENCIL_TEST);
     }
 
+    //The section renderer's viewport type is erased here: the viewport handed in came from this very
+    //renderer's createViewport, so the raw calls below are type correct.
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public void runPipeline(Viewport<?> viewport, int sourceDepthTexture, int sourceColourTexture, int srcWidth, int srcHeight) {
         int depthTexture = this.setup(viewport, sourceDepthTexture, srcWidth, srcHeight);
 
@@ -183,6 +186,8 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
     }
 
     private static final long SCRATCH = MemoryUtil.nmemAlloc(4*4*4);
+    //Render thread only, so a shared scratch is fine and saves a matrix allocation per frame
+    private static final Matrix4f MATRIX_SCRATCH = new Matrix4f();
     protected static void transformBlitDepth(FullscreenBlit blitShader, int srcDepthTex, int dstFB, Viewport<?> viewport, Matrix4f targetTransform) {
         // at this point the dst frame buffer doesn't have a stencil attachment so we don't need to keep the stencil test on for the blit
         // in the worst case the dstFB does have a stencil attachment causing this pass to become 'corrupted'
@@ -191,7 +196,7 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
 
         blitShader.bind();
         glBindTextureUnit(0, srcDepthTex);
-        JomlConv.put(new Matrix4f(viewport.MVP).invert(), SCRATCH);
+        JomlConv.put(MATRIX_SCRATCH.set(viewport.MVP).invert(), SCRATCH);
         nglUniformMatrix4fv(1, 1, false, SCRATCH);//inverse fromProjection
         JomlConv.put(targetTransform, SCRATCH);//new Matrix4f(tooProjection).mul(vp.modelView).get(data);
         nglUniformMatrix4fv(2, 1, false, SCRATCH);//tooProjection

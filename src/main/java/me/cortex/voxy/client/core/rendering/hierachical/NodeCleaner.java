@@ -133,14 +133,14 @@ public class NodeCleaner {
     }
 
     private boolean shouldCleanGeometry() {
-        if (false) {
-            //If used more than 75% of geometry buffer
-            long used = this.nodeManager.getUsedGeometryCapacity();
-            return 3 < ((double) used) / ((double) (this.nodeManager.getGeometryCapacity() - used));
-        } else {
-            long remaining = this.nodeManager.getGeometryCapacity() - this.nodeManager.getUsedGeometryCapacity();
-            return remaining < 256_000_000;//If less than 256 mb free memory
-        }
+        long capacity = this.nodeManager.getGeometryCapacity();
+        long remaining = capacity - this.nodeManager.getUsedGeometryCapacity();
+        //Start evicting with a fifth of the budget still free, capped so a large budget does not sit
+        //on a correspondingly large idle reserve. A fixed 256MB reserve -- what this used to be --
+        //means nothing is ever evicted until the budget is nearly exhausted, and is most of the
+        //budget itself once the budget is small.
+        long reserve = Math.min(256_000_000L, capacity/5);
+        return remaining < reserve;
     }
 
     public void updateIds(IntOpenHashSet collection) {

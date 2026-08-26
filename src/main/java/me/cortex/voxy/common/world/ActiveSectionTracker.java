@@ -46,6 +46,7 @@ public final class ActiveSectionTracker {
     @Nullable
     public final WorldEngine engine;
 
+    @SuppressWarnings({"unchecked", "rawtypes"})//Generic array creation; every slot is filled below
     public ActiveSectionTracker(int numSlicesBits, SectionLoader loader, int cacheSize) {
         this(numSlicesBits, loader, cacheSize, null);
     }

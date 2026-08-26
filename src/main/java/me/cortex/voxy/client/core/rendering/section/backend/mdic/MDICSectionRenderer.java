@@ -149,10 +149,15 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         }
     }
 
+    private final Matrix4f uniformMatrixScratch = new Matrix4f();
+    //The viewport this frame's uniform upload was already done for, so the second call in a frame
+    //does not re-upload bytes identical to the first
+    private MDICViewport uniformUploadedFor;
+
     private void uploadUniformBuffer(MDICViewport viewport) {
         long ptr = UploadStream.INSTANCE.upload(this.uniform, 0, 1024);
-        
-        var mat = new Matrix4f(viewport.MVP);
+
+        var mat = this.uniformMatrixScratch.set(viewport.MVP);
         mat.translate(-viewport.innerTranslation.x, -viewport.innerTranslation.y, -viewport.innerTranslation.z);
         JomlConv.put(mat, ptr); ptr += 4*4*4;
 
@@ -223,7 +228,9 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
     public void renderOpaque(MDICViewport viewport) {
         if (this.geometryManager.getSectionCount() == 0) return;
 
+        //First pass of the frame, so this upload always happens; buildDrawCalls reuses it
         this.uploadUniformBuffer(viewport);
+        this.uniformUploadedFor = viewport;
 
         this.renderTerrain(viewport, 0, 4*3, Math.min((int)(this.geometryManager.getSectionCount()*4.4+128), OPAQUE_DRAW_COUNT));
     }
@@ -262,7 +269,12 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
     @Override
     public void buildDrawCalls(MDICViewport viewport) {
         if (this.geometryManager.getSectionCount() == 0) return;
-        this.uploadUniformBuffer(viewport);
+        //Nothing in the frame between renderOpaque and here changes what the uniform holds, so only
+        //upload when renderOpaque did not already do it for this viewport this frame
+        if (this.uniformUploadedFor != viewport) {
+            this.uploadUniformBuffer(viewport);
+        }
+        this.uniformUploadedFor = null;
         //Can do a sneeky trick, since the sectionRenderList is a list to things to render, it invokes the culler
         // which only marks visible sections
 

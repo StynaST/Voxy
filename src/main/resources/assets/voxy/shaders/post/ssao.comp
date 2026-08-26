@@ -23,6 +23,10 @@ vec3 rev3d(mat4 matrix, vec3 clip) {
     return view.xyz/view.w;
 }
 
+//The output image dimensions. imageSize() was a per invocation query of something the caller
+//already knows, and it is not free on every driver.
+layout(location = 8) uniform ivec2 screenSize;
+
 ivec2 size;
 vec2 scale;
 
@@ -245,7 +249,7 @@ vec3 face2norm(uint face) {
 }
 
 void main() {
-    size = imageSize(colourTexOut);//TODO: dont use imageSize as it is slow, swap for uniform
+    size = screenSize;
     if (any(lessThanEqual(size, gl_GlobalInvocationID.xy))) {
         return;
     }

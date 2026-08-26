@@ -26,6 +26,7 @@ public class WeakConcurrentCleanableHashMap<K extends LongSupplier, V> {
     {
         this.k2i.defaultReturnValue(-1);
     }
+    @SuppressWarnings({"unchecked", "rawtypes"})//Generic array creation; every slot is filled with a Long2ObjectOpenHashMap<V> below
     private final Long2ObjectOpenHashMap<V>[] i2v = new Long2ObjectOpenHashMap[1<<4];
     private final ReentrantLock[] i2vLocks = new ReentrantLock[this.i2v.length];
     {
@@ -68,6 +69,7 @@ public class WeakConcurrentCleanableHashMap<K extends LongSupplier, V> {
         }
     }
 
+    @SuppressWarnings("unchecked")//cleanupQueue only ever receives the WeakReference<K> registered in computeIfAbsent
     public void cleanup() {
         WeakReference<K> ref = (WeakReference<K>) this.cleanupQueue.poll();
         if (ref != null) {

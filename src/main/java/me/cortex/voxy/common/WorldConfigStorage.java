@@ -120,6 +120,7 @@ public class WorldConfigStorage<T> {
         this.load();
     }
 
+    @SuppressWarnings("unchecked")//InnerHolder is deserialized with the same map type this holds
     private void load() {
         if (Files.exists(this.file)) {
             try (FileReader reader = new FileReader(this.file.toFile())) {

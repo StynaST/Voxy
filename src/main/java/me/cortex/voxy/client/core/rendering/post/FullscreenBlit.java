@@ -29,6 +29,7 @@ public class FullscreenBlit {
         this(properties, "voxy:post/fullscreen.vert", fragId, applyer);
     }
 
+    @SuppressWarnings("unchecked")//Shader.make() is the builder for whichever shader type the caller asked for
     public <T extends Shader> FullscreenBlit(RenderProperties properties, String vertId, String fragId, Consumer<Shader.Builder<T>> applyer) {
         this.shader = ((Shader.Builder<T>)Shader.make())
                 .apply(properties::apply)

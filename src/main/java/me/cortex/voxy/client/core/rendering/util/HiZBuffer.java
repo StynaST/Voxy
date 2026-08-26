@@ -26,6 +26,7 @@ public class HiZBuffer {
     private final int sampler = glGenSamplers();
     private final int type;
     private GlTexture texture;
+    private GlTexture[] levelViews = new GlTexture[0];
     private int levels;
     private int width;
     private int height;
@@ -69,15 +70,30 @@ public class HiZBuffer {
         this.width  = width;
         this.height = height;
 
+        //One single level view per mip. Each pass samples the level the previous pass wrote, and
+        //binding a view to do that costs nothing at draw time -- see buildMipChain.
+        this.levelViews = new GlTexture[this.levels];
+        for (int i = 0; i < this.levels; i++) {
+            this.levelViews[i] = this.texture.createView(i, 1);
+        }
+
         this.fb.bind(GL_DEPTH_ATTACHMENT, this.texture, 0).verify();
+    }
+
+    private void freeTexture() {
+        for (var view : this.levelViews) {
+            view.free();
+        }
+        this.levelViews = new GlTexture[0];
+        if (this.texture != null) {
+            this.texture.free();
+            this.texture = null;
+        }
     }
 
     public void buildMipChain(int srcDepthTex, int width, int height) {
         if (this.width != Integer.highestOneBit(width) || this.height != Integer.highestOneBit(height)) {
-            if (this.texture != null) {
-                this.texture.free();
-                this.texture = null;
-            }
+            this.freeTexture();
             this.alloc(Integer.highestOneBit(width), Integer.highestOneBit(height));
         }
         glBindVertexArray(GlVertexArray.STATIC_VAO);
@@ -96,19 +112,19 @@ public class HiZBuffer {
         int cw = this.width;
         int ch = this.height;
         for (int i = 0; i < this.levels; i++) {
+            if (i != 0) {
+                //Read the level the previous pass wrote. Upstream did this by moving
+                //GL_TEXTURE_BASE_LEVEL/GL_TEXTURE_MAX_LEVEL onto level i-1 between every pass, which
+                //mutates the same texture object that is bound as the attachment and makes the driver
+                //revalidate it each time. A single level view is immutable state set up once at alloc.
+                glBindTextureUnit(0, this.levelViews[i-1].id);
+            }
             this.fb.bind(GL_DEPTH_ATTACHMENT, this.texture, i);
             glViewport(0, 0, cw, ch); cw = Math.max(cw/2, 1); ch = Math.max(ch/2, 1);
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
             glTextureBarrier();
             glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
-            glTextureParameteri(this.texture.id, GL_TEXTURE_BASE_LEVEL, i);
-            glTextureParameteri(this.texture.id, GL_TEXTURE_MAX_LEVEL, i);
-            if (i==0) {
-                glBindTextureUnit(0, this.texture.id);
-            }
         }
-        glTextureParameteri(this.texture.id, GL_TEXTURE_BASE_LEVEL, 0);
-        glTextureParameteri(this.texture.id, GL_TEXTURE_MAX_LEVEL, 1000);//TODO: CHECK IF ITS -1 or -0
 
         glDepthFunc(this.properties.closerEqualDepthCompare());
         glDisable(GL_DEPTH_TEST);
@@ -119,10 +135,7 @@ public class HiZBuffer {
 
     public void free() {
         this.fb.free();
-        if (this.texture != null) {
-            this.texture.free();
-            this.texture = null;
-        }
+        this.freeTexture();
         glDeleteSamplers(this.sampler);
         this.hiz.free();
     }

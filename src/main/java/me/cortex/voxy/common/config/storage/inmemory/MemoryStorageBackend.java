@@ -55,6 +55,7 @@ public class MemoryStorageBackend extends StorageBackend {
         }
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})//Generic array creation; every slot is filled below
     public MemoryStorageBackend(int slicesBitCount) {
         this.maps = new Long2ObjectMap[1<<slicesBitCount];
         for (int i = 0; i < this.maps.length; i++) {

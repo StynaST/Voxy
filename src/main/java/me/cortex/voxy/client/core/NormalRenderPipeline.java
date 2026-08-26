@@ -29,6 +29,8 @@ public class NormalRenderPipeline extends AbstractRenderPipeline {
 
     private final SSAO ssao;
 
+    private final Matrix4f blitTransformScratch = new Matrix4f();
+
     protected NormalRenderPipeline(RenderProperties properties, AsyncNodeManager nodeManager, NodeCleaner nodeCleaner, HierarchicalOcclusionTraverser traversal, BooleanSupplier frexSupplier) {
         super(properties, nodeManager, nodeCleaner, traversal, frexSupplier, false);
         this.useEnvFog = VoxyConfig.CONFIG.useEnvironmentalFog;
@@ -101,7 +103,8 @@ public class NormalRenderPipeline extends AbstractRenderPipeline {
         if (!fogCoversAllRendering) {
             glEnable(GL_BLEND);
             glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-            AbstractRenderPipeline.transformBlitDepth(this.finalBlit, this.fb.getDepthTex().id, outputFramebuffer, viewport, new Matrix4f(viewport.vanillaProjection).mul(viewport.modelView));
+            AbstractRenderPipeline.transformBlitDepth(this.finalBlit, this.fb.getDepthTex().id, outputFramebuffer, viewport,
+                    this.blitTransformScratch.set(viewport.vanillaProjection).mul(viewport.modelView));
             glDisable(GL_BLEND);
         } else {
             glDisable(GL_STENCIL_TEST);

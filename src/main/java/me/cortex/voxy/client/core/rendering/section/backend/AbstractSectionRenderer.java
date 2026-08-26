@@ -21,10 +21,12 @@ public abstract class AbstractSectionRenderer <T extends Viewport<T>, J extends 
     }
 
     public record Factory<VIEWPORT extends Viewport<VIEWPORT>, GEODATA extends IGeometryData>(Class<? extends AbstractSectionRenderer<VIEWPORT, GEODATA>> clz, FactoryConstructor<VIEWPORT, GEODATA> constructor) {
+        @SuppressWarnings("unchecked")//The geometry data is created for this exact backend
         public AbstractSectionRenderer<VIEWPORT, GEODATA> create(AbstractRenderPipeline pipeline, ModelStore store, IGeometryData geometryData) {
             return this.constructor.create(pipeline, store, (GEODATA) geometryData);
         }
 
+        @SuppressWarnings("unchecked")//clz is the renderer class, so its constructor yields that renderer
         public static <VIEWPORT2 extends Viewport<VIEWPORT2>, GEODATA2 extends IGeometryData> Factory<VIEWPORT2, GEODATA2> create(Class<? extends AbstractSectionRenderer<VIEWPORT2, GEODATA2>> clz) {
             var constructors = clz.getConstructors();
             if (constructors.length != 1) {

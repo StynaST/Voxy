@@ -32,6 +32,10 @@ public class VoxyConfig {
     public float sectionRenderDistance = 16;
     public int serviceThreads = (int) Math.max(CpuLayout.getCoreCount()/1.5, 1);
     public float subDivisionSize = 64;
+    //Ceiling on how much section geometry stays resident on the gpu. Sections past it are evicted
+    //least-recently-visible first and fall back to their parent LOD until looked at again, so a
+    //budget below what the current view needs shows up as re-meshing and pop-in. 0 means auto.
+    public int geometryBudgetMB = 0;
     public boolean useEnvironmentalFog = true;
     public boolean dontUseSodiumBuilderThreads = false;
     public String ssaoMode;

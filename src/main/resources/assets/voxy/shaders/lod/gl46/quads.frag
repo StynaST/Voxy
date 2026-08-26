@@ -93,14 +93,14 @@ struct VoxyFragmentParameters {
 void voxy_emitFragment(VoxyFragmentParameters parameters);
 #else
 
-vec4 computeColour(vec2 texturePos, vec4 colour) {
+//exactTexel is the unmipped texel at this fragment, sampled once in main() and shared with the
+//cutout alpha test -- the partial tint test used to take that same fetch a second time.
+vec4 computeColour(vec4 colour, uint tintingFunction, vec4 exactTexel) {
     //Conditional tinting, TODO: FIXME: this is better but still not great, try encode data into the top bit of alpha so its per pixel
 
-    uint tintingFunction = tintingState();
     bool doTint = tintingFunction==2;//Always tint if function == 2
     if (tintingFunction == 1) {//partial tint
-        vec4 tintTest = textureLod(blockModelAtlas, texturePos, 0);
-        if (abs(tintTest.r-tintTest.g) < 0.02f && abs(tintTest.g-tintTest.b) < 0.02f) {
+        if (abs(exactTexel.r-exactTexel.g) < 0.02f && abs(exactTexel.g-exactTexel.b) < 0.02f) {
             doTint = true;
         }
     }
@@ -163,13 +163,24 @@ void main() {
     }
 
 
+    //The exact (unmipped) texel is wanted by the cutout alpha test and by the partial tint test.
+    //Sample it once here instead of once per test: on tinted cutout geometry -- grass, leaves,
+    //foliage, i.e. most of what a LOD view is made of -- that was two identical fetches a fragment.
+    uint tintingFunction = tintingState();
+    #ifndef TRANSLUCENT
+    bool needsExactTexel = useDiscard() || tintingFunction == 1u;
+    #else
+    bool needsExactTexel = true;//The translucent alpha test always reads it
+    #endif
+    vec4 exactTexel = needsExactTexel ? textureLod(blockModelAtlas, texPos, 0) : vec4(0.0f);
+
     //Also, small quad is really fking over the mipping level somehow
     #ifndef TRANSLUCENT
     colour.a = 1.0f;
-    if (useDiscard() && (textureLod(blockModelAtlas, texPos, 0).a <= 0.1f)) {
+    if (useDiscard() && (exactTexel.a <= 0.1f)) {
     //if (useDiscard() && (colour.a <= 0.1f)) {
     #else
-    if (textureLod(blockModelAtlas, texPos, 0).a == 0.0f) {
+    if (exactTexel.a == 0.0f) {
     #endif
         //This is stupidly stupidly bad for divergence
         //TODO: FIXME, basicly what this do is sample the exact pixel (no lod) for discarding, this stops mipmapping fucking it over
@@ -186,7 +197,7 @@ void main() {
     #endif
 
     #ifndef PATCHED_SHADER
-    colour = computeColour(texPos, colour);
+    colour = computeColour(colour, tintingFunction, exactTexel);
     outColour = colour;
 
     #ifdef DEBUG_RENDER
@@ -201,7 +212,6 @@ void main() {
     #else
     uint modelId = getModelId();
     BlockModel model = modelData[modelId];
-    uint tintingFunction = tintingState();
     bool doTint = tintingFunction==2;//Always tint if function == 2
     if (tintingFunction==1) {//Partial tint
         vec4 tintTest = texture(blockModelAtlas, texPos, -2);

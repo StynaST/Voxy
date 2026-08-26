@@ -5,6 +5,7 @@ import java.util.function.IntConsumer;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.voxy.client.TimingStatistics;
+import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.gl.GlBuffer;
 import me.cortex.voxy.client.core.gl.shader.Shader;
 import me.cortex.voxy.client.core.gl.shader.ShaderType;
@@ -96,7 +97,7 @@ public class AsyncNodeManager {
         // it MUST ONLY be accessed on the render thread
         // AsyncNodeManager will use an AsyncGeometryManager as the manager for the data store, and sync the results on the render thread
         this.geometryData = geometryData;
-        this.geometryCapacity = ((BasicSectionGeometryData)geometryData).getGeometryCapacityBytes();
+        this.geometryCapacity = computeGeometryBudget(((BasicSectionGeometryData)geometryData).getGeometryCapacityBytes());
 
         this.maxNodeCount = maxNodeCount;
 
@@ -625,6 +626,40 @@ public class AsyncNodeManager {
     public int getCurrentMaxNodeId() {
         return this.currentMaxNodeId;
     }
+
+    /**
+     * How much section geometry is allowed to be resident, which is deliberately not the size of the
+     * geometry buffer.
+     *
+     * <p>This one number is the allocation arena's limit, the gate on new uploads, and what
+     * {@link NodeCleaner} measures its eviction trigger against. Because the arena can never hand out
+     * an address past it, and the sparse buffer only commits pages the arena has reached, it is also
+     * a hard ceiling on the geometry buffer's resident memory.
+     *
+     * <p>Left at the buffer size -- which is what upstream used -- roughly 1.75GB of geometry
+     * accumulates before a single section is ever evicted, so sections nowhere near the camera stay
+     * resident at full detail.
+     */
+    private static long computeGeometryBudget(long geometryBufferBytes) {
+        long budget;
+        int configured = VoxyConfig.CONFIG.geometryBudgetMB;
+        if (configured > 0) {
+            budget = configured*1024L*1024L;
+        } else {
+            budget = DEFAULT_GEOMETRY_BUDGET;
+        }
+        //Never above the buffer itself, and keep enough that a normal view fits without thrashing
+        budget = Math.min(budget, geometryBufferBytes);
+        budget = Math.max(budget, MIN_GEOMETRY_BUDGET);
+        budget -= budget%8;//The arena is in 8 byte quads
+
+        Logger.info("Geometry budget: " + (budget/(1024*1024)) + "MB of a " + (geometryBufferBytes/(1024*1024)) + "MB buffer"
+                + (configured > 0 ? " (from config)" : " (auto)"));
+        return budget;
+    }
+
+    private static final long DEFAULT_GEOMETRY_BUDGET = 1024L*1024L*1024L;
+    private static final long MIN_GEOMETRY_BUDGET = 256L*1024L*1024L;
 
     private long usedGeometryAmount = 0;
     public long getUsedGeometryCapacity() {

@@ -56,6 +56,7 @@ public class Serialization {
             return gson.getDelegateAdapter(this, TypeToken.get(retype)).fromJsonTree(json);
         }
 
+        @SuppressWarnings("unchecked")//value is a T, so its class is a Class<? extends T>
         private JsonElement serialize(Gson gson, T value) {
             String name = this.type2name.get(value.getClass());
             if (name == null) {
@@ -74,6 +75,7 @@ public class Serialization {
 
 
         @Override
+        @SuppressWarnings("unchecked")//Guarded by the isAssignableFrom check, so X is a subtype of T
         public <X> TypeAdapter<X> create(Gson gson, TypeToken<X> type) {
             if (this.clz.isAssignableFrom(type.getRawType())) {
                 var jsonObjectAdapter = gson.getAdapter(JsonElement.class);
@@ -119,6 +121,8 @@ public class Serialization {
         }
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})//Config types are discovered reflectively; the
+    //superclass walk above is what proves `original` is a subclass of the serializer's type
     public static void init() {
         String BASE_SEARCH_PACKAGE = "me.cortex.voxy";
 

@@ -163,7 +163,7 @@ public class Mapper {
                         continue;
                     }
                     var attempt = new StateEntry(error.right(), candidate);
-                    if (this.block2stateEntry.put(candidate, attempt) == null) {
+                    if (this.block2stateEntry.putIfAbsent(candidate, attempt) == null) {
                         placeholder = attempt;
                         break;
                     }

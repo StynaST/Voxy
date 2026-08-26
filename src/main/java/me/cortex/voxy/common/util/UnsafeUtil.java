@@ -1,82 +1,59 @@
 package me.cortex.voxy.common.util;
 
-import sun.misc.Unsafe;
+import org.lwjgl.system.MemoryUtil;
 
-import java.lang.reflect.Field;
-
+/**
+ * Bulk memory copies between raw addresses and Java arrays.
+ *
+ * <p>Port note: upstream reflected {@code sun.misc.Unsafe} out of the JDK and called
+ * {@code copyMemory} directly. Every one of those methods is terminally deprecated on Java 25
+ * (JEP 498) and warns at both compile and run time. LWJGL 3.4's {@link MemoryUtil} exposes the
+ * exact same primitives ({@code memCopy}) and is the copy path the rest of Voxy already uses, so
+ * these are now thin delegates -- same generated code, no deprecated API on our side.
+ *
+ * <p>Argument order is kept as upstream had it (src first, dst last) so call sites are unchanged;
+ * MemoryUtil's array overloads instead take (array, address, arrayIndex, elementCount).
+ */
 public class UnsafeUtil {
-    private static final Unsafe UNSAFE;
-    static {
-        try {
-            Field field = Unsafe.class.getDeclaredField("theUnsafe");
-            field.setAccessible(true);
-            UNSAFE = (Unsafe)field.get(null);
-        } catch (Exception e) {throw new RuntimeException(e);}
-    }
-
-    private static final long BYTE_ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
-    private static final long SHORT_ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(short[].class);
-    private static final long INT_ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
-    private static final long LONG_ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(long[].class);
-
     public static void memcpy(long src, long dst, long length) {
-        UNSAFE.copyMemory(src, dst, length);
+        MemoryUtil.memCopy(src, dst, length);
     }
-
-
 
     //Copy the entire length of src to the dst memory where dst is a byte array (source length from dst)
     public static void memcpy(long src, byte[] dst) {
-        UNSAFE.copyMemory(null, src, dst, BYTE_ARRAY_BASE_OFFSET, dst.length);
+        MemoryUtil.memCopy(src, dst);
     }
 
     public static void memcpy(long src, int length, byte[] dst) {
-        UNSAFE.copyMemory(null, src, dst, BYTE_ARRAY_BASE_OFFSET, length);
+        MemoryUtil.memCopy(src, dst, 0, length);
     }
 
     public static void memcpy(long src, int length, byte[] dst, int offset) {
-        UNSAFE.copyMemory(null, src, dst, BYTE_ARRAY_BASE_OFFSET+offset, length);
+        MemoryUtil.memCopy(src, dst, offset, length);
     }
 
     //Copy the entire length of src to the dst memory where src is a byte array (source length from src)
     public static void memcpy(byte[] src, long dst) {
-        UNSAFE.copyMemory(src, BYTE_ARRAY_BASE_OFFSET, null, dst, src.length);
+        MemoryUtil.memCopy(src, dst);
     }
 
     public static void memcpy(byte[] src, int len, long dst) {
-        UNSAFE.copyMemory(src, BYTE_ARRAY_BASE_OFFSET, null, dst, len);
+        MemoryUtil.memCopy(src, dst, 0, len);
     }
+
     public static void memcpy(short[] src, long dst) {
-        UNSAFE.copyMemory(src, SHORT_ARRAY_BASE_OFFSET, null, dst, (long) src.length <<1);
+        MemoryUtil.memCopy(src, dst);
     }
+
     public static void memcpy(long[] src, long dst) {
-        UNSAFE.copyMemory(src, LONG_ARRAY_BASE_OFFSET, null, dst, (long) src.length <<3);
+        MemoryUtil.memCopy(src, dst);
     }
 
     public static void memcpy(int[] src, long dst) {
-        UNSAFE.copyMemory(src, INT_ARRAY_BASE_OFFSET, null, dst, (long) src.length <<2);
+        MemoryUtil.memCopy(src, dst);
     }
+
     public static void memcpy(int[] src, int count, long dst) {
-        UNSAFE.copyMemory(src, INT_ARRAY_BASE_OFFSET, null, dst, (long) count <<2);
+        MemoryUtil.memCopy(src, dst, 0, count);
     }
-
-
-    //Cause lwjgl is being a clown with var handles, we need to do things ourselves
-
-
-    public static boolean memGetBoolean(long ptr) { return UNSAFE.getByte(null, ptr) != 0; }
-    public static byte memGetByte(long ptr)       { return UNSAFE.getByte(null, ptr); }
-    public static short memGetShort(long ptr)     { return UNSAFE.getShort(null, ptr); }
-    public static int memGetInt(long ptr)         { return UNSAFE.getInt(null, ptr); }
-    public static long memGetLong(long ptr)       { return UNSAFE.getLong(null, ptr); }
-    public static float memGetFloat(long ptr)     { return UNSAFE.getFloat(null, ptr); }
-    public static double memGetDouble(long ptr)   { return UNSAFE.getDouble(null, ptr); }
-
-    public static void memPutByte(long ptr, byte value)     { UNSAFE.putByte(null, ptr, value); }
-    public static void memPutShort(long ptr, short value)   { UNSAFE.putShort(null, ptr, value); }
-    public static void memPutInt(long ptr, int value)       { UNSAFE.putInt(null, ptr, value); }
-    public static void memPutLong(long ptr, long value)     { UNSAFE.putLong(null, ptr, value); }
-    public static void memPutFloat(long ptr, float value)   { UNSAFE.putFloat(null, ptr, value); }
-    public static void memPutDouble(long ptr, double value) { UNSAFE.putDouble(null, ptr, value); }
-
 }

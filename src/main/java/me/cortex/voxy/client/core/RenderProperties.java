@@ -23,6 +23,7 @@ import static org.lwjgl.opengl.GL11C.*;
  */
 public record RenderProperties(boolean isZero2One, boolean isReverseZ, boolean useBlockAtlasUVs) {
 
+    @SuppressWarnings("unchecked")//defineIf returns the same builder instance it was called on
     public <T extends Shader.Builder<J>, J extends Shader> T apply(T builder) {
         return (T) builder.defineIf("USE_ZERO_ONE_DEPTH", this.isZero2One)
                 .defineIf("USE_REVERSE_Z", this.isReverseZ);
